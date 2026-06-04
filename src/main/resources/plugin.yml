@@ -1,0 +1,49 @@
+name: ChunkTicker
+version: '${project.version}'
+main: de.emilo.chunkticker.ChunkTicker
+api-version: '1.21'
+description: Keeps selected chunks permanently loaded and fully ticking
+authors: [ emilo ]
+website: ''
+
+commands:
+  chunksticker:
+    description: ChunkTicker main command
+    usage: /chunksticker <set|delete|list|reload|on|off|status> [radius]
+    aliases: [ ct ]
+
+permissions:
+  chunksticker.admin:
+    description: Grants all ChunkTicker permissions
+    default: op
+    children:
+      chunksticker.set: true
+      chunksticker.delete: true
+      chunksticker.list: true
+      chunksticker.reload: true
+      chunksticker.toggle: true
+      chunksticker.status: true
+
+  chunksticker.set:
+    description: Allows setting chunks via /ct set
+    default: op
+
+  chunksticker.delete:
+    description: Allows removing chunks via /ct delete
+    default: op
+
+  chunksticker.list:
+    description: Allows listing chunks via /ct list
+    default: op
+
+  chunksticker.reload:
+    description: Allows reloading the config via /ct reload
+    default: op
+
+  chunksticker.toggle:
+    description: Allows toggling the plugin on/off via /ct on and /ct off
+    default: op
+
+  chunksticker.status:
+    description: Allows checking plugin status via /ct status
+    default: op

@@ -1,0 +1,35 @@
+# ============================================================
+#  ChunkTicker – Konfiguration
+# ============================================================
+#
+#  global-enabled  Ob das Plugin aktiv ist. Bei false werden
+#                  keine Tickets gesetzt; Chunks bleiben aber
+#                  in der Liste gespeichert.
+#
+#  ticket-mode     Welcher Ticket-Typ für geladene Chunks
+#                  gesetzt wird:
+#
+#    plugin  → addPluginChunkTicket()  (TicketType.PLUGIN, Level 31)
+#    forced  → setChunkForceLoaded()   (TicketType.FORCED, Level 31)
+#    both    → beide gleichzeitig (Standard, empfohlen)
+#
+#                  Level 31 = entity-ticking: Mobs spawnen,
+#                  Entitäten ticken, Redstone läuft.
+#                  Alle drei Modi erlauben volles Mob-Spawning
+#                  (Eisengolem-, Creeper-, Hoglin-Farmen).
+#
+#                  Hinweis: TicketType.UNKNOWN hat timeout=1
+#                  tick und ist für persistentes Laden NICHT
+#                  geeignet. "forced" und "plugin" sind die
+#                  korrekten persistenten Ticket-Typen.
+#
+#  chunks          Liste aller registrierten Chunks.
+#                  Wird automatisch von /ct set und /ct delete
+#                  verwaltet – nur bearbeiten wenn der Server
+#                  gestoppt ist!
+# ============================================================
+
+global-enabled: true
+ticket-mode: both
+
+chunks: []
