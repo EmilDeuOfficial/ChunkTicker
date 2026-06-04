@@ -1,0 +1,4 @@
+target/
+versions/
+.claude/
+*.class
