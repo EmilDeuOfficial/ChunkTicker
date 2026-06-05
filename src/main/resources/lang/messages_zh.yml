@@ -1,0 +1,43 @@
+usage: "用法: /{label} <set|delete|list|reload|on|off|status> [半径]"
+unknown-command: "未知命令。使用 /{label} 获取帮助。"
+no-permission: "没有权限。"
+player-only: "该命令只能由玩家执行。"
+
+set:
+  all-existing: "所有 {total} 个区块已注册。"
+  success: "成功注册 {added} 个区块{skipped}。"
+  skipped-suffix: "（{n} 个已存在）"
+
+delete:
+  none-found: "该区域内未找到已注册的区块。"
+  success: "成功删除 {removed} 个区块。"
+
+list:
+  empty: "没有已注册的区块。"
+  header: "已注册的区块（{count}）:"
+  world: "世界"
+  x: "X"
+  z: "Z"
+
+reload:
+  success: "配置已重新加载。{count} 个区块处于活动状态。"
+
+on:
+  already-active: "ChunkTicker 已经处于活动状态。"
+  success: "ChunkTicker 已启用。已加载 {count} 个区块。"
+
+off:
+  already-disabled: "ChunkTicker 已经处于禁用状态。"
+  success: "ChunkTicker 已禁用。所有票据已移除（区块仍然保存）。"
+
+status:
+  label-status: "状态:"
+  active: "已启用"
+  inactive: "已禁用"
+  label-chunks: "已注册区块:"
+  chunk-suffix: "个区块"
+
+radius:
+  too-small: "半径必须 >= 0。"
+  too-large: "半径最大为 20（一次性区块过多）。"
+  invalid: "无效的半径: '{value}' — 必须是数字。"

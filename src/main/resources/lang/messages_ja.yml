@@ -1,0 +1,43 @@
+usage: "使用法: /{label} <set|delete|list|reload|on|off|status> [半径]"
+unknown-command: "不明なコマンドです。/{label} でヘルプを表示します。"
+no-permission: "権限がありません。"
+player-only: "このコマンドはプレイヤーのみが実行できます。"
+
+set:
+  all-existing: "すべての {total} チャンクはすでに登録されています。"
+  success: "{added} チャンクを登録しました{skipped}。"
+  skipped-suffix: "（{n} 件はすでに存在）"
+
+delete:
+  none-found: "この範囲に登録されたチャンクはありません。"
+  success: "{removed} チャンクを削除しました。"
+
+list:
+  empty: "登録されたチャンクはありません。"
+  header: "登録済みチャンク（{count}）:"
+  world: "ワールド"
+  x: "X"
+  z: "Z"
+
+reload:
+  success: "設定を再読み込みしました。{count} チャンク有効。"
+
+on:
+  already-active: "ChunkTicker はすでに有効です。"
+  success: "ChunkTicker を有効にしました。{count} チャンクを読み込みました。"
+
+off:
+  already-disabled: "ChunkTicker はすでに無効です。"
+  success: "ChunkTicker を無効にしました。すべてのチケットを削除しました（チャンクは保存されています）。"
+
+status:
+  label-status: "ステータス:"
+  active: "有効"
+  inactive: "無効"
+  label-chunks: "登録済みチャンク:"
+  chunk-suffix: "チャンク"
+
+radius:
+  too-small: "半径は 0 以上である必要があります。"
+  too-large: "半径は最大 20 まで指定できます（一度に多すぎます）。"
+  invalid: "無効な半径: '{value}' — 数値を入力してください。"

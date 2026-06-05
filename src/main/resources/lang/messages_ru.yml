@@ -1,0 +1,43 @@
+usage: "Использование: /{label} <set|delete|list|reload|on|off|status> [радиус]"
+unknown-command: "Неизвестная команда. Используй /{label} для справки."
+no-permission: "Нет прав."
+player-only: "Эту команду могут использовать только игроки."
+
+set:
+  all-existing: "Все {total} чанк(ов) уже были зарегистрированы."
+  success: "{added} чанк(ов) зарегистрировано{skipped}."
+  skipped-suffix: " ({n} уже существовало)"
+
+delete:
+  none-found: "В этой области не найдено зарегистрированных чанков."
+  success: "{removed} чанк(ов) удалено."
+
+list:
+  empty: "Нет зарегистрированных чанков."
+  header: "Зарегистрированные чанки ({count}):"
+  world: "Мир"
+  x: "X"
+  z: "Z"
+
+reload:
+  success: "Конфиг перезагружен. {count} чанк(ов) активно."
+
+on:
+  already-active: "ChunkTicker уже активен."
+  success: "ChunkTicker включён. {count} чанк(ов) загружено."
+
+off:
+  already-disabled: "ChunkTicker уже отключён."
+  success: "ChunkTicker отключён. Все тикеты удалены (чанки сохранены)."
+
+status:
+  label-status: "Статус:"
+  active: "АКТИВЕН"
+  inactive: "НЕАКТИВЕН"
+  label-chunks: "Зарегистрированные чанки:"
+  chunk-suffix: "чанк(ов)"
+
+radius:
+  too-small: "Радиус должен быть >= 0."
+  too-large: "Радиус не может превышать 20 (слишком много чанков за раз)."
+  invalid: "Неверный радиус: '{value}' — должно быть числом."

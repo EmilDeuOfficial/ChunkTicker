@@ -15,6 +15,7 @@ public class ChunkTicker extends JavaPlugin {
         saveDefaultConfig();
 
         chunkManager = new ChunkManager(this);
+        Lang.load(this);
         chunkManager.loadFromConfig();
 
         ChunkTickerCommand cmd = new ChunkTickerCommand(this);

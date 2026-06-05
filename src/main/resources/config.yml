@@ -44,6 +44,10 @@
 global-enabled: true
 ticket-mode: both
 
+# Language for plugin messages.
+# Available: en, de, ru, es, fr, ja, zh
+language: en
+
 force-spawning:
   enabled: true
   interval-ticks: 400

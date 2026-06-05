@@ -1,0 +1,43 @@
+usage: "Usage: /{label} <set|delete|list|reload|on|off|status> [radius]"
+unknown-command: "Unknown command. Use /{label} for help."
+no-permission: "No permission."
+player-only: "This command can only be used by players."
+
+set:
+  all-existing: "All {total} chunk(s) were already registered."
+  success: "{added} chunk(s) registered{skipped}."
+  skipped-suffix: " ({n} already existed)"
+
+delete:
+  none-found: "No registered chunks found in this area."
+  success: "{removed} chunk(s) removed."
+
+list:
+  empty: "No chunks registered."
+  header: "Registered chunks ({count}):"
+  world: "World"
+  x: "X"
+  z: "Z"
+
+reload:
+  success: "Config reloaded. {count} chunk(s) active."
+
+on:
+  already-active: "ChunkTicker is already active."
+  success: "ChunkTicker enabled. {count} chunk(s) loaded."
+
+off:
+  already-disabled: "ChunkTicker is already disabled."
+  success: "ChunkTicker disabled. All tickets removed (chunks remain saved)."
+
+status:
+  label-status: "Status:"
+  active: "ACTIVE"
+  inactive: "INACTIVE"
+  label-chunks: "Registered chunks:"
+  chunk-suffix: "chunk(s)"
+
+radius:
+  too-small: "Radius must be >= 0."
+  too-large: "Radius may be at most 20 (too many chunks at once)."
+  invalid: "Invalid radius: '{value}' — must be a number."

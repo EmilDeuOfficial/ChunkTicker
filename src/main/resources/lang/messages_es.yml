@@ -1,0 +1,43 @@
+usage: "Uso: /{label} <set|delete|list|reload|on|off|status> [radio]"
+unknown-command: "Comando desconocido. Usa /{label} para obtener ayuda."
+no-permission: "Sin permisos."
+player-only: "Este comando solo puede ser usado por jugadores."
+
+set:
+  all-existing: "Todos los {total} chunk(s) ya estaban registrados."
+  success: "{added} chunk(s) registrado(s){skipped}."
+  skipped-suffix: " ({n} ya existian)"
+
+delete:
+  none-found: "No se encontraron chunks registrados en esta area."
+  success: "{removed} chunk(s) eliminado(s)."
+
+list:
+  empty: "No hay chunks registrados."
+  header: "Chunks registrados ({count}):"
+  world: "Mundo"
+  x: "X"
+  z: "Z"
+
+reload:
+  success: "Configuracion recargada. {count} chunk(s) activos."
+
+on:
+  already-active: "ChunkTicker ya esta activo."
+  success: "ChunkTicker activado. {count} chunk(s) cargados."
+
+off:
+  already-disabled: "ChunkTicker ya esta desactivado."
+  success: "ChunkTicker desactivado. Todos los tickets eliminados (los chunks siguen guardados)."
+
+status:
+  label-status: "Estado:"
+  active: "ACTIVO"
+  inactive: "INACTIVO"
+  label-chunks: "Chunks registrados:"
+  chunk-suffix: "chunk(s)"
+
+radius:
+  too-small: "El radio debe ser >= 0."
+  too-large: "El radio no puede superar 20 (demasiados chunks a la vez)."
+  invalid: "Radio invalido: '{value}' — debe ser un numero."

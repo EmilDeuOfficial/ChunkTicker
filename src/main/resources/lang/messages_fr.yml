@@ -1,0 +1,43 @@
+usage: "Utilisation : /{label} <set|delete|list|reload|on|off|status> [rayon]"
+unknown-command: "Commande inconnue. Utilise /{label} pour l'aide."
+no-permission: "Permission refusee."
+player-only: "Cette commande ne peut etre utilisee que par des joueurs."
+
+set:
+  all-existing: "Les {total} chunk(s) etaient deja enregistres."
+  success: "{added} chunk(s) enregistre(s){skipped}."
+  skipped-suffix: " ({n} deja existants)"
+
+delete:
+  none-found: "Aucun chunk enregistre trouve dans cette zone."
+  success: "{removed} chunk(s) supprime(s)."
+
+list:
+  empty: "Aucun chunk enregistre."
+  header: "Chunks enregistres ({count}) :"
+  world: "Monde"
+  x: "X"
+  z: "Z"
+
+reload:
+  success: "Configuration rechargee. {count} chunk(s) actif(s)."
+
+on:
+  already-active: "ChunkTicker est deja actif."
+  success: "ChunkTicker active. {count} chunk(s) charge(s)."
+
+off:
+  already-disabled: "ChunkTicker est deja desactive."
+  success: "ChunkTicker desactive. Tous les tickets supprimes (les chunks restent sauvegardes)."
+
+status:
+  label-status: "Statut :"
+  active: "ACTIF"
+  inactive: "INACTIF"
+  label-chunks: "Chunks enregistres :"
+  chunk-suffix: "chunk(s)"
+
+radius:
+  too-small: "Le rayon doit etre >= 0."
+  too-large: "Le rayon ne peut pas depasser 20 (trop de chunks a la fois)."
+  invalid: "Rayon invalide : '{value}' — doit etre un nombre."

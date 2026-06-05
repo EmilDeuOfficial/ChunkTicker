@@ -3,10 +3,9 @@ package de.emilo.chunkticker.commands;
 import de.emilo.chunkticker.ChunkManager;
 import de.emilo.chunkticker.ChunkManager.ChunkEntry;
 import de.emilo.chunkticker.ChunkTicker;
+import de.emilo.chunkticker.Lang;
 import net.kyori.adventure.text.Component;
 import net.kyori.adventure.text.format.NamedTextColor;
-import org.bukkit.Bukkit;
-import org.bukkit.World;
 import org.bukkit.command.Command;
 import org.bukkit.command.CommandExecutor;
 import org.bukkit.command.CommandSender;
@@ -16,7 +15,9 @@ import org.bukkit.entity.Player;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
+import java.util.stream.Collectors;
 
 public class ChunkTickerCommand implements CommandExecutor, TabCompleter {
 
@@ -28,7 +29,7 @@ public class ChunkTickerCommand implements CommandExecutor, TabCompleter {
     private final ChunkManager manager;
 
     public ChunkTickerCommand(ChunkTicker plugin) {
-        this.plugin = plugin;
+        this.plugin  = plugin;
         this.manager = plugin.getChunkManager();
     }
 
@@ -39,7 +40,7 @@ public class ChunkTickerCommand implements CommandExecutor, TabCompleter {
     @Override
     public boolean onCommand(CommandSender sender, Command command, String label, String[] args) {
         if (args.length == 0) {
-            sendInfo(sender, "Verwendung: /" + label + " <set|delete|list|reload|on|off|status> [radius]");
+            sendInfo(sender, Lang.get("usage", "label", label));
             return true;
         }
 
@@ -51,7 +52,7 @@ public class ChunkTickerCommand implements CommandExecutor, TabCompleter {
             case "on"     -> handleOn(sender);
             case "off"    -> handleOff(sender);
             case "status" -> handleStatus(sender);
-            default       -> sendError(sender, "Unbekannter Befehl. Nutze /" + label + " für Hilfe.");
+            default       -> sendError(sender, Lang.get("unknown-command", "label", label));
         }
         return true;
     }
@@ -62,40 +63,39 @@ public class ChunkTickerCommand implements CommandExecutor, TabCompleter {
 
     private void handleSet(CommandSender sender, String[] args) {
         if (!sender.hasPermission("chunksticker.set")) {
-            sendError(sender, "Keine Berechtigung.");
+            sendError(sender, Lang.get("no-permission"));
             return;
         }
         if (!(sender instanceof Player player)) {
-            sendError(sender, "Dieser Befehl kann nur von Spielern ausgeführt werden.");
+            sendError(sender, Lang.get("player-only"));
             return;
         }
 
         int radius = parseRadius(sender, args, 1);
         if (radius < 0) return;
 
-        int cx = player.getLocation().getChunk().getX();
-        int cz = player.getLocation().getChunk().getZ();
+        int cx    = player.getLocation().getChunk().getX();
+        int cz    = player.getLocation().getChunk().getZ();
         String world = player.getWorld().getName();
 
-        int added = 0;
-        int skipped = 0;
+        int added = 0, skipped = 0;
         for (int dx = -radius; dx <= radius; dx++) {
             for (int dz = -radius; dz <= radius; dz++) {
-                if (manager.addChunk(world, cx + dx, cz + dz)) {
-                    added++;
-                } else {
-                    skipped++;
-                }
+                if (manager.addChunk(world, cx + dx, cz + dz)) added++;
+                else skipped++;
             }
         }
         manager.saveToConfig();
 
         int total = (radius * 2 + 1) * (radius * 2 + 1);
         if (skipped == total) {
-            sendInfo(sender, "Alle " + total + " Chunk(s) waren bereits registriert.");
+            sendInfo(sender, Lang.get("set.all-existing", "total", String.valueOf(total)));
         } else {
-            sendSuccess(sender, added + " Chunk(s) registriert"
-                    + (skipped > 0 ? " (" + skipped + " bereits vorhanden)" : "") + ".");
+            String skippedSuffix = skipped > 0
+                    ? Lang.get("set.skipped-suffix", "n", String.valueOf(skipped)) : "";
+            sendSuccess(sender, Lang.get("set.success",
+                    "added",   String.valueOf(added),
+                    "skipped", skippedSuffix));
         }
     }
 
@@ -105,35 +105,33 @@ public class ChunkTickerCommand implements CommandExecutor, TabCompleter {
 
     private void handleDelete(CommandSender sender, String[] args) {
         if (!sender.hasPermission("chunksticker.delete")) {
-            sendError(sender, "Keine Berechtigung.");
+            sendError(sender, Lang.get("no-permission"));
             return;
         }
         if (!(sender instanceof Player player)) {
-            sendError(sender, "Dieser Befehl kann nur von Spielern ausgeführt werden.");
+            sendError(sender, Lang.get("player-only"));
             return;
         }
 
         int radius = parseRadius(sender, args, 1);
         if (radius < 0) return;
 
-        int cx = player.getLocation().getChunk().getX();
-        int cz = player.getLocation().getChunk().getZ();
+        int cx    = player.getLocation().getChunk().getX();
+        int cz    = player.getLocation().getChunk().getZ();
         String world = player.getWorld().getName();
 
         int removed = 0;
         for (int dx = -radius; dx <= radius; dx++) {
             for (int dz = -radius; dz <= radius; dz++) {
-                if (manager.removeChunk(world, cx + dx, cz + dz)) {
-                    removed++;
-                }
+                if (manager.removeChunk(world, cx + dx, cz + dz)) removed++;
             }
         }
         manager.saveToConfig();
 
         if (removed == 0) {
-            sendInfo(sender, "Keine registrierten Chunks in diesem Bereich gefunden.");
+            sendInfo(sender, Lang.get("delete.none-found"));
         } else {
-            sendSuccess(sender, removed + " Chunk(s) entfernt.");
+            sendSuccess(sender, Lang.get("delete.success", "removed", String.valueOf(removed)));
         }
     }
 
@@ -143,24 +141,28 @@ public class ChunkTickerCommand implements CommandExecutor, TabCompleter {
 
     private void handleList(CommandSender sender) {
         if (!sender.hasPermission("chunksticker.list")) {
-            sendError(sender, "Keine Berechtigung.");
+            sendError(sender, Lang.get("no-permission"));
             return;
         }
 
         Set<ChunkEntry> chunks = manager.getRegisteredChunks();
         if (chunks.isEmpty()) {
-            sendInfo(sender, "Keine Chunks registriert.");
+            sendInfo(sender, Lang.get("list.empty"));
             return;
         }
 
-        sendInfo(sender, "Registrierte Chunks (" + chunks.size() + "):");
+        sendInfo(sender, Lang.get("list.header", "count", String.valueOf(chunks.size())));
+        String wLabel = Lang.get("list.world");
+        String xLabel = Lang.get("list.x");
+        String zLabel = Lang.get("list.z");
+
         for (ChunkEntry e : chunks) {
             sender.sendMessage(Component.text("  ").color(NamedTextColor.GRAY)
-                    .append(Component.text("Welt: ").color(NamedTextColor.YELLOW))
+                    .append(Component.text(wLabel + ": ").color(NamedTextColor.YELLOW))
                     .append(Component.text(e.worldName()).color(NamedTextColor.WHITE))
-                    .append(Component.text("  X: ").color(NamedTextColor.YELLOW))
+                    .append(Component.text("  " + xLabel + ": ").color(NamedTextColor.YELLOW))
                     .append(Component.text(String.valueOf(e.x())).color(NamedTextColor.WHITE))
-                    .append(Component.text("  Z: ").color(NamedTextColor.YELLOW))
+                    .append(Component.text("  " + zLabel + ": ").color(NamedTextColor.YELLOW))
                     .append(Component.text(String.valueOf(e.z())).color(NamedTextColor.WHITE)));
         }
     }
@@ -171,13 +173,15 @@ public class ChunkTickerCommand implements CommandExecutor, TabCompleter {
 
     private void handleReload(CommandSender sender) {
         if (!sender.hasPermission("chunksticker.reload")) {
-            sendError(sender, "Keine Berechtigung.");
+            sendError(sender, Lang.get("no-permission"));
             return;
         }
         manager.unloadAllTickets();
         plugin.reloadConfig();
+        Lang.load(plugin);
         manager.loadFromConfig();
-        sendSuccess(sender, "Config neu geladen. " + manager.getRegisteredChunkCount() + " Chunk(s) aktiv.");
+        sendSuccess(sender, Lang.get("reload.success",
+                "count", String.valueOf(manager.getRegisteredChunkCount())));
     }
 
     // -------------------------------------------------------
@@ -186,15 +190,16 @@ public class ChunkTickerCommand implements CommandExecutor, TabCompleter {
 
     private void handleOn(CommandSender sender) {
         if (!sender.hasPermission("chunksticker.toggle")) {
-            sendError(sender, "Keine Berechtigung.");
+            sendError(sender, Lang.get("no-permission"));
             return;
         }
         if (manager.isGlobalEnabled()) {
-            sendInfo(sender, "ChunkTicker ist bereits aktiv.");
+            sendInfo(sender, Lang.get("on.already-active"));
             return;
         }
         manager.enableGlobal();
-        sendSuccess(sender, "ChunkTicker aktiviert. " + manager.getRegisteredChunkCount() + " Chunk(s) geladen.");
+        sendSuccess(sender, Lang.get("on.success",
+                "count", String.valueOf(manager.getRegisteredChunkCount())));
     }
 
     // -------------------------------------------------------
@@ -203,15 +208,15 @@ public class ChunkTickerCommand implements CommandExecutor, TabCompleter {
 
     private void handleOff(CommandSender sender) {
         if (!sender.hasPermission("chunksticker.toggle")) {
-            sendError(sender, "Keine Berechtigung.");
+            sendError(sender, Lang.get("no-permission"));
             return;
         }
         if (!manager.isGlobalEnabled()) {
-            sendInfo(sender, "ChunkTicker ist bereits deaktiviert.");
+            sendInfo(sender, Lang.get("off.already-disabled"));
             return;
         }
         manager.disableGlobal();
-        sendSuccess(sender, "ChunkTicker deaktiviert. Alle Tickets entfernt (Chunks bleiben gespeichert).");
+        sendSuccess(sender, Lang.get("off.success"));
     }
 
     // -------------------------------------------------------
@@ -220,29 +225,29 @@ public class ChunkTickerCommand implements CommandExecutor, TabCompleter {
 
     private void handleStatus(CommandSender sender) {
         if (!sender.hasPermission("chunksticker.status")) {
-            sendError(sender, "Keine Berechtigung.");
+            sendError(sender, Lang.get("no-permission"));
             return;
         }
         boolean enabled = manager.isGlobalEnabled();
         int count = manager.getRegisteredChunkCount();
 
         sender.sendMessage(Component.text(PREFIX).color(NamedTextColor.GOLD)
-                .append(Component.text("Status: ").color(NamedTextColor.YELLOW))
+                .append(Component.text(Lang.get("status.label-status") + " ").color(NamedTextColor.YELLOW))
                 .append(enabled
-                        ? Component.text("AKTIV").color(NamedTextColor.GREEN)
-                        : Component.text("INAKTIV").color(NamedTextColor.RED)));
+                        ? Component.text(Lang.get("status.active")).color(NamedTextColor.GREEN)
+                        : Component.text(Lang.get("status.inactive")).color(NamedTextColor.RED)));
+
         sender.sendMessage(Component.text(PREFIX).color(NamedTextColor.GOLD)
-                .append(Component.text("Registrierte Chunks: ").color(NamedTextColor.YELLOW))
+                .append(Component.text(Lang.get("status.label-chunks") + " ").color(NamedTextColor.YELLOW))
                 .append(Component.text(String.valueOf(count)).color(NamedTextColor.WHITE)));
 
-        // Per-world breakdown
         if (count > 0) {
-            java.util.Map<String, Long> perWorld = manager.getRegisteredChunks().stream()
-                    .collect(java.util.stream.Collectors.groupingBy(
-                            ChunkEntry::worldName, java.util.stream.Collectors.counting()));
+            String chunkSuffix = Lang.get("status.chunk-suffix");
+            Map<String, Long> perWorld = manager.getRegisteredChunks().stream()
+                    .collect(Collectors.groupingBy(ChunkEntry::worldName, Collectors.counting()));
             perWorld.forEach((world, n) ->
                     sender.sendMessage(Component.text("  " + world + ": ").color(NamedTextColor.GRAY)
-                            .append(Component.text(n + " Chunk(s)").color(NamedTextColor.WHITE))));
+                            .append(Component.text(n + " " + chunkSuffix).color(NamedTextColor.WHITE))));
         }
     }
 
@@ -253,20 +258,17 @@ public class ChunkTickerCommand implements CommandExecutor, TabCompleter {
     @Override
     public List<String> onTabComplete(CommandSender sender, Command command, String alias, String[] args) {
         if (args.length == 1) {
-            List<String> completions = new ArrayList<>();
+            List<String> result = new ArrayList<>();
             String typed = args[0].toLowerCase();
             for (String sub : SUBCOMMANDS) {
-                if (sub.startsWith(typed) && hasPermissionFor(sender, sub)) {
-                    completions.add(sub);
-                }
+                if (sub.startsWith(typed) && hasPermissionFor(sender, sub)) result.add(sub);
             }
-            return completions;
+            return result;
         }
         if (args.length == 2 && (args[0].equalsIgnoreCase("set") || args[0].equalsIgnoreCase("delete"))) {
-            String typed = args[1];
             List<String> radii = new ArrayList<>();
             for (String r : new String[]{"0", "1", "2", "3", "5"}) {
-                if (r.startsWith(typed)) radii.add(r);
+                if (r.startsWith(args[1])) radii.add(r);
             }
             return radii;
         }
@@ -275,13 +277,13 @@ public class ChunkTickerCommand implements CommandExecutor, TabCompleter {
 
     private boolean hasPermissionFor(CommandSender sender, String sub) {
         return switch (sub) {
-            case "set"    -> sender.hasPermission("chunksticker.set");
-            case "delete" -> sender.hasPermission("chunksticker.delete");
-            case "list"   -> sender.hasPermission("chunksticker.list");
-            case "reload" -> sender.hasPermission("chunksticker.reload");
+            case "set"       -> sender.hasPermission("chunksticker.set");
+            case "delete"    -> sender.hasPermission("chunksticker.delete");
+            case "list"      -> sender.hasPermission("chunksticker.list");
+            case "reload"    -> sender.hasPermission("chunksticker.reload");
             case "on", "off" -> sender.hasPermission("chunksticker.toggle");
-            case "status" -> sender.hasPermission("chunksticker.status");
-            default -> false;
+            case "status"    -> sender.hasPermission("chunksticker.status");
+            default          -> false;
         };
     }
 
@@ -289,22 +291,15 @@ public class ChunkTickerCommand implements CommandExecutor, TabCompleter {
     //  Helpers
     // -------------------------------------------------------
 
-    /** Parses radius from args[index]. Returns -1 and sends error on invalid input. */
     private int parseRadius(CommandSender sender, String[] args, int index) {
         if (args.length <= index) return 0;
         try {
             int r = Integer.parseInt(args[index]);
-            if (r < 0) {
-                sendError(sender, "Radius muss >= 0 sein.");
-                return -1;
-            }
-            if (r > 20) {
-                sendError(sender, "Radius darf maximal 20 sein (zu viele Chunks auf einmal).");
-                return -1;
-            }
+            if (r < 0)  { sendError(sender, Lang.get("radius.too-small")); return -1; }
+            if (r > 20) { sendError(sender, Lang.get("radius.too-large")); return -1; }
             return r;
         } catch (NumberFormatException e) {
-            sendError(sender, "Ungültiger Radius: '" + args[index] + "' – muss eine Zahl sein.");
+            sendError(sender, Lang.get("radius.invalid", "value", args[index]));
             return -1;
         }
     }
