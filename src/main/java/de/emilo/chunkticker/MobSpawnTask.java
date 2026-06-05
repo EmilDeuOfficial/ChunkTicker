@@ -2,6 +2,7 @@ package de.emilo.chunkticker;
 
 import org.bukkit.*;
 import org.bukkit.block.Block;
+import org.bukkit.block.Biome;
 import org.bukkit.entity.*;
 import org.bukkit.event.entity.CreatureSpawnEvent;
 import org.bukkit.scheduler.BukkitRunnable;
@@ -11,22 +12,21 @@ import java.util.logging.Level;
 
 /**
  * Spawns mobs in registered chunks using only the Bukkit API.
- * No NMS / reflection required — works on all Paper 1.21.x builds.
  *
- * Per spawn cycle (every interval-ticks):
- *  - Checks per-chunk hostile entity count against max-mobs-per-chunk
- *  - Searches for a valid dark location (block light = 0, solid floor, 3 air above)
- *  - Spawns a biome-appropriate hostile mob with SpawnReason.NATURAL
- *  - Respects Paper's built-in spawn event / mob-cap pipeline
+ * Mob selection is biome-aware:
+ *   Overworld   – ZOMBIE, SKELETON, CREEPER, SPIDER, WITCH, ENDERMAN
+ *   Crimson Forest  – HOGLIN, PIGLIN
+ *   Nether Wastes   – ZOMBIFIED_PIGLIN, WITHER_SKELETON, PIGLIN
+ *   Soul Sand Valley – SKELETON, GHAST (open-air), WITHER_SKELETON
+ *   Basalt Deltas   – MAGMA_CUBE
+ *   Warped Forest   – ENDERMAN
+ *   The End         – ENDERMAN, SHULKER (end highlands)
+ *
+ * Iron golems are NOT spawned here — they spawn through villager AI
+ * (panic / sleep cycles), which already works because ChunkTicker keeps
+ * the chunk entity-ticking. No extra code needed for iron golem farms.
  */
 public class MobSpawnTask extends BukkitRunnable {
-
-    private static final EntityType[] OVERWORLD_MOBS = {
-            EntityType.ZOMBIE, EntityType.SKELETON, EntityType.CREEPER
-    };
-    private static final EntityType[] NETHER_MOBS = {
-            EntityType.ZOMBIFIED_PIGLIN, EntityType.WITHER_SKELETON
-    };
 
     private final ChunkTicker plugin;
     private final ChunkManager manager;
@@ -58,38 +58,84 @@ public class MobSpawnTask extends BukkitRunnable {
     private void spawnInChunk(World world, int cx, int cz) {
         Chunk chunk = world.getChunkAt(cx, cz);
 
-        // Count existing hostile mobs in this chunk
         int monsters = 0;
         for (Entity e : chunk.getEntities()) {
-            if (e instanceof Monster) monsters++;
+            if (e instanceof Monster || e instanceof Hoglin || e instanceof Piglin) monsters++;
         }
         if (monsters >= maxMobsPerChunk) return;
 
-        Location loc = findDarkLocation(world, cx, cz);
+        Biome biome = world.getBiome(cx * 16 + 8, 64, cz * 16 + 8);
+        boolean darkSpawn = requiresDarkness(biome, world.getEnvironment());
+
+        Location loc = findSpawnLocation(world, cx, cz, darkSpawn);
         if (loc == null) return;
 
-        EntityType type = pickMobType(world, loc);
+        EntityType type = pickMobType(biome, world.getEnvironment());
         if (type == null) return;
 
         world.spawnEntity(loc, type, CreatureSpawnEvent.SpawnReason.NATURAL);
     }
 
-    /**
-     * Scans random positions in the chunk for a valid hostile-mob spawn location:
-     * block light level 0, solid block below, 3 air blocks above.
-     */
-    private Location findDarkLocation(World world, int cx, int cz) {
-        ThreadLocalRandom rand = ThreadLocalRandom.current();
-        int minY = world.getMinHeight() + 2;
-        int maxY = world.getMaxHeight() - 3;
+    // -------------------------------------------------------
+    //  Mob selection
+    // -------------------------------------------------------
 
-        for (int attempt = 0; attempt < 12; attempt++) {
+    private EntityType pickMobType(Biome biome, World.Environment env) {
+        ThreadLocalRandom rand = ThreadLocalRandom.current();
+
+        // Nether biomes
+        if (env == World.Environment.NETHER) {
+            return switch (biome) {
+                case CRIMSON_FOREST   -> rand.nextBoolean() ? EntityType.HOGLIN : EntityType.PIGLIN;
+                case SOUL_SAND_VALLEY -> pick(rand, EntityType.SKELETON, EntityType.WITHER_SKELETON);
+                case BASALT_DELTAS    -> EntityType.MAGMA_CUBE;
+                case WARPED_FOREST    -> EntityType.ENDERMAN;
+                default               -> pick(rand, EntityType.ZOMBIFIED_PIGLIN, EntityType.PIGLIN, EntityType.WITHER_SKELETON);
+            };
+        }
+
+        // End
+        if (env == World.Environment.THE_END) {
+            return EntityType.ENDERMAN;
+        }
+
+        // Overworld – default hostile mobs
+        return pick(rand, EntityType.ZOMBIE, EntityType.SKELETON,
+                EntityType.CREEPER, EntityType.SPIDER, EntityType.WITCH, EntityType.ENDERMAN);
+    }
+
+    /** Dark spawning required for overworld hostile mobs (light level 0). */
+    private boolean requiresDarkness(Biome biome, World.Environment env) {
+        return env == World.Environment.NORMAL;
+    }
+
+    // -------------------------------------------------------
+    //  Location finding
+    // -------------------------------------------------------
+
+    /**
+     * Finds a valid spawn location in the chunk.
+     *
+     * darkSpawn=true  → block light must be 0 (overworld hostile mobs)
+     * darkSpawn=false → any light level, just needs solid floor + 2 air (nether/end)
+     */
+    private Location findSpawnLocation(World world, int cx, int cz, boolean darkSpawn) {
+        ThreadLocalRandom rand = ThreadLocalRandom.current();
+        int minY  = world.getMinHeight() + 2;
+        int maxY  = world.getMaxHeight() - 3;
+
+        for (int attempt = 0; attempt < 16; attempt++) {
             int x = cx * 16 + rand.nextInt(16);
             int z = cz * 16 + rand.nextInt(16);
 
-            // Start below surface to find darkness
-            int surfaceY = Math.min(world.getHighestBlockYAt(x, z) - 1, maxY);
-            int startY = Math.max(minY, surfaceY);
+            int startY;
+            if (darkSpawn) {
+                // Search underground (below surface) for darkness
+                startY = Math.min(Math.max(world.getHighestBlockYAt(x, z) - 1, minY), maxY);
+            } else {
+                // Nether / End: search from a mid-height down
+                startY = Math.min(maxY, 100);
+            }
 
             for (int y = startY; y >= minY; y--) {
                 Block floor  = world.getBlockAt(x, y - 1, z);
@@ -97,11 +143,11 @@ public class MobSpawnTask extends BukkitRunnable {
                 Block head   = world.getBlockAt(x, y + 1, z);
                 Block above2 = world.getBlockAt(x, y + 2, z);
 
-                if (!floor.getType().isSolid())           continue;
-                if (feet.getType()   != Material.AIR)     continue;
-                if (head.getType()   != Material.AIR)     continue;
-                if (above2.getType() != Material.AIR)     continue;
-                if (feet.getLightFromBlocks() > 0)        continue; // block light must be 0
+                if (!floor.getType().isSolid())         continue;
+                if (feet.getType()   != Material.AIR)   continue;
+                if (head.getType()   != Material.AIR)   continue;
+                if (above2.getType() != Material.AIR)   continue;
+                if (darkSpawn && feet.getLightFromBlocks() > 0) continue;
 
                 return new Location(world, x + 0.5, y, z + 0.5);
             }
@@ -109,12 +155,12 @@ public class MobSpawnTask extends BukkitRunnable {
         return null;
     }
 
-    private EntityType pickMobType(World world, Location loc) {
-        ThreadLocalRandom rand = ThreadLocalRandom.current();
-        return switch (world.getEnvironment()) {
-            case NETHER  -> NETHER_MOBS[rand.nextInt(NETHER_MOBS.length)];
-            case THE_END -> EntityType.ENDERMAN;
-            default      -> OVERWORLD_MOBS[rand.nextInt(OVERWORLD_MOBS.length)];
-        };
+    // -------------------------------------------------------
+    //  Helpers
+    // -------------------------------------------------------
+
+    @SafeVarargs
+    private static <T> T pick(ThreadLocalRandom rand, T... options) {
+        return options[rand.nextInt(options.length)];
     }
 }
