@@ -24,6 +24,11 @@ public class ChunkTicker extends JavaPlugin {
             command.setTabCompleter(cmd);
         }
 
+        if (getConfig().getBoolean("force-spawning.enabled", true)) {
+            int interval = getConfig().getInt("force-spawning.interval-ticks", 400);
+            new MobSpawnTask(this, chunkManager).runTaskTimer(this, interval, interval);
+        }
+
         int count = chunkManager.getRegisteredChunkCount();
         getLogger().info("ChunkTicker aktiviert."
                 + (chunkManager.isGlobalEnabled() && count > 0
