@@ -12,11 +12,11 @@ import java.util.logging.Level;
 
 /**
  * Triggers NaturalSpawner.spawnForChunk() for every registered chunk each
- * spawn-interval ticks. This bypasses the vanilla restriction that mob spawning
+ * spawn-interval ticks — bypassing the vanilla restriction that mob spawning
  * only runs in chunks within a player's mobSpawnRange.
  *
- * Falls back gracefully (logs a warning, task self-cancels) if NMS reflection
- * fails on an incompatible server version.
+ * Methods are discovered by name + parameter count rather than by hardcoded
+ * internal class names so this works across all Paper 1.21.x sub-versions.
  */
 @SuppressWarnings({"unchecked", "rawtypes"})
 public class MobSpawnTask extends BukkitRunnable {
@@ -24,7 +24,6 @@ public class MobSpawnTask extends BukkitRunnable {
     private final ChunkTicker plugin;
     private final ChunkManager manager;
 
-    // One-time NMS reflection cache
     private static Boolean nmsAvailable = null;
 
     private static Method craftWorldGetHandle;
@@ -36,10 +35,10 @@ public class MobSpawnTask extends BukkitRunnable {
 
     private static Field lastSpawnStateField;
 
+    // Discovered at runtime from method signatures – no hardcoded internal names
     private static Method naturalSpawnerCreateState;
     private static Method naturalSpawnerSpawnForChunk;
     private static Class<?> chunkGetterInterface;
-    private static Class<?> localMobCapClass;
 
     public MobSpawnTask(ChunkTicker plugin, ChunkManager manager) {
         this.plugin = plugin;
@@ -58,7 +57,7 @@ public class MobSpawnTask extends BukkitRunnable {
                 spawnInChunk(world, entry.x(), entry.z());
             } catch (Exception e) {
                 plugin.getLogger().log(Level.WARNING,
-                        "MobSpawnTask Fehler in Chunk [" + entry.worldName()
+                        "MobSpawnTask Fehler [" + entry.worldName()
                                 + " " + entry.x() + "/" + entry.z() + "]: " + e.getMessage());
             }
         }
@@ -68,9 +67,8 @@ public class MobSpawnTask extends BukkitRunnable {
         Object serverLevel = craftWorldGetHandle.invoke(world);
         Object chunkSource = serverLevelGetChunkSource.invoke(serverLevel);
 
-        // Reuse the spawn state the server already computed this tick (available when
-        // players are online). If no players are online the field will be null – in
-        // that case we build a minimal spawn state ourselves.
+        // Reuse the spawn state already computed this tick (available when players are
+        // online). If null (no players online), build one from scratch.
         Object spawnState = lastSpawnStateField.get(chunkSource);
         if (spawnState == null) {
             spawnState = buildFreshSpawnState(world, serverLevel);
@@ -85,13 +83,9 @@ public class MobSpawnTask extends BukkitRunnable {
                 true, true, false);
     }
 
-    /**
-     * Builds a SpawnState from scratch when no players are online.
-     * Uses the Bukkit entity list (mapped to NMS) for mob-cap accounting.
-     */
     private Object buildFreshSpawnState(World world, Object serverLevel) {
         try {
-            // Collect NMS entity handles from Bukkit entities (for mob cap count)
+            // Collect NMS entity handles (for mob-cap accounting)
             List<Object> nmsEntities = new ArrayList<>();
             for (org.bukkit.entity.Entity e : world.getEntities()) {
                 if (craftEntityClass.isInstance(e)) {
@@ -100,17 +94,17 @@ public class MobSpawnTask extends BukkitRunnable {
                 }
             }
 
-            // Dynamic proxy implementing the NaturalSpawner.ChunkGetter interface:
-            // query(long chunkPosLong, Consumer<LevelChunk> consumer)
+            // Proxy for NaturalSpawner.ChunkGetter (functional interface):
+            // void query(long chunkPosLong, Consumer<LevelChunk> consumer)
             Object chunkGetterProxy = Proxy.newProxyInstance(
                     chunkGetterInterface.getClassLoader(),
                     new Class[]{chunkGetterInterface},
                     (proxy, method, args) -> {
                         switch (method.getName()) {
                             case "query" -> {
-                                long pos      = (long) args[0];
+                                long pos  = (long) args[0];
                                 Consumer cons = (Consumer) args[1];
-                                // ChunkPos encodes x in lower 32 bits, z in upper 32 bits
+                                // ChunkPos: x = lower 32 bits, z = upper 32 bits
                                 int x = (int) (pos & 0xFFFFFFFFL);
                                 int z = (int) (pos >>> 32);
                                 try {
@@ -120,53 +114,76 @@ public class MobSpawnTask extends BukkitRunnable {
                             }
                             case "equals"   -> { return proxy == (args != null ? args[0] : null); }
                             case "hashCode" -> { return System.identityHashCode(proxy); }
-                            case "toString" -> { return "MobSpawnTask$ChunkGetterProxy"; }
+                            case "toString" -> { return "ChunkGetterProxy"; }
                         }
                         return null;
                     }
             );
 
             int chunkCount = Math.max(1, manager.getRegisteredChunkCount());
-            // null for LocalMobCapCalculator → uses global mob cap, skips per-player cap
+            // Pass null for LocalMobCapCalculator → global mob cap, no per-player tracking
             return naturalSpawnerCreateState.invoke(null, chunkCount, nmsEntities,
                     chunkGetterProxy, null);
         } catch (Exception e) {
             plugin.getLogger().log(Level.WARNING,
-                    "MobSpawnTask: SpawnState konnte nicht erstellt werden: " + e.getMessage());
+                    "MobSpawnTask: SpawnState-Erstellung fehlgeschlagen: " + e.getMessage());
             return null;
         }
     }
 
     // -------------------------------------------------------
-    //  NMS reflection initialisation
+    //  NMS reflection – version-resilient method discovery
     // -------------------------------------------------------
 
     private boolean initNms() {
         if (nmsAvailable != null) return nmsAvailable;
         try {
-            Class<?> craftWorldClass  = Class.forName("org.bukkit.craftbukkit.CraftWorld");
-            craftEntityClass          = Class.forName("org.bukkit.craftbukkit.entity.CraftEntity");
-            Class<?> serverLevelClass = Class.forName("net.minecraft.server.level.ServerLevel");
-            Class<?> chunkCacheClass  = Class.forName("net.minecraft.server.level.ServerChunkCache");
-            Class<?> naturalSpawner   = Class.forName("net.minecraft.world.level.NaturalSpawner");
-            Class<?> spawnStateClass  = Class.forName("net.minecraft.world.level.NaturalSpawner$SpawnState");
-            Class<?> levelChunkClass  = Class.forName("net.minecraft.world.level.chunk.LevelChunk");
-            localMobCapClass          = Class.forName("net.minecraft.server.level.LocalMobCapCalculator");
-            chunkGetterInterface      = Class.forName("net.minecraft.world.level.NaturalSpawner$ChunkGetter");
+            // Bukkit bridge classes
+            Class<?> craftWorldClass = Class.forName("org.bukkit.craftbukkit.CraftWorld");
+            craftEntityClass         = Class.forName("org.bukkit.craftbukkit.entity.CraftEntity");
+            craftWorldGetHandle      = craftWorldClass.getMethod("getHandle");
+            craftEntityGetHandle     = craftEntityClass.getMethod("getHandle");
 
-            craftWorldGetHandle         = craftWorldClass.getMethod("getHandle");
-            craftEntityGetHandle        = craftEntityClass.getMethod("getHandle");
+            // ServerLevel
+            Class<?> serverLevelClass = Class.forName("net.minecraft.server.level.ServerLevel");
             serverLevelGetChunkSource   = serverLevelClass.getMethod("getChunkSource");
             serverLevelGetChunkIfLoaded = serverLevelClass.getMethod("getChunkIfLoaded", int.class, int.class);
 
+            // ServerChunkCache.lastSpawnState (Paper addition – stable field name)
+            Class<?> chunkCacheClass = Class.forName("net.minecraft.server.level.ServerChunkCache");
             lastSpawnStateField = chunkCacheClass.getDeclaredField("lastSpawnState");
             lastSpawnStateField.setAccessible(true);
 
-            naturalSpawnerCreateState = naturalSpawner.getMethod("createState",
-                    int.class, Iterable.class, chunkGetterInterface, localMobCapClass);
-            naturalSpawnerSpawnForChunk = naturalSpawner.getMethod("spawnForChunk",
-                    serverLevelClass, levelChunkClass, spawnStateClass,
-                    boolean.class, boolean.class, boolean.class);
+            // NaturalSpawner – discover methods by name + param count, not by internal class names.
+            // This avoids hard dependencies on LocalMobCapCalculator / ChunkGetter class names
+            // that may differ across Paper 1.21.x sub-versions.
+            Class<?> naturalSpawner = Class.forName("net.minecraft.world.level.NaturalSpawner");
+
+            for (Method m : naturalSpawner.getDeclaredMethods()) {
+                if (m.getName().equals("createState") && m.getParameterCount() == 4
+                        && m.getParameterTypes()[0] == int.class
+                        && m.getParameterTypes()[1] == Iterable.class) {
+                    m.setAccessible(true);
+                    naturalSpawnerCreateState = m;
+                    // Parameter [2] IS the ChunkGetter interface – grab it dynamically
+                    chunkGetterInterface = m.getParameterTypes()[2];
+                    break;
+                }
+            }
+
+            for (Method m : naturalSpawner.getDeclaredMethods()) {
+                if (m.getName().equals("spawnForChunk") && m.getParameterCount() == 6) {
+                    m.setAccessible(true);
+                    naturalSpawnerSpawnForChunk = m;
+                    break;
+                }
+            }
+
+            if (naturalSpawnerCreateState == null || naturalSpawnerSpawnForChunk == null
+                    || chunkGetterInterface == null) {
+                throw new NoSuchMethodException(
+                        "createState(4) oder spawnForChunk(6) nicht in NaturalSpawner gefunden");
+            }
 
             nmsAvailable = true;
             plugin.getLogger().info(
@@ -175,8 +192,7 @@ public class MobSpawnTask extends BukkitRunnable {
             nmsAvailable = false;
             plugin.getLogger().log(Level.WARNING,
                     "MobSpawnTask NMS-Init fehlgeschlagen (" + e.getMessage() + "). "
-                  + "Mob-Spawning ohne Spieler ist nicht verfügbar. "
-                  + "Stelle sicher, dass Paper 1.21.x verwendet wird.");
+                  + "Mob-Spawning ohne Spieler ist nicht verfügbar.");
             this.cancel();
         }
         return nmsAvailable;
