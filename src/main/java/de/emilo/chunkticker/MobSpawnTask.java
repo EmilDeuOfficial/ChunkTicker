@@ -58,9 +58,15 @@ public class MobSpawnTask extends BukkitRunnable {
             try {
                 spawnInChunk(world, entry.x(), entry.z());
             } catch (Exception e) {
+                // Unwrap InvocationTargetException so we see the real cause
+                Throwable cause = e;
+                while (cause instanceof InvocationTargetException && cause.getCause() != null) {
+                    cause = cause.getCause();
+                }
                 plugin.getLogger().log(Level.WARNING,
                         "MobSpawnTask Fehler [" + entry.worldName()
-                                + " " + entry.x() + "/" + entry.z() + "]: " + e.getMessage());
+                                + " " + entry.x() + "/" + entry.z() + "]: "
+                                + cause.getClass().getSimpleName() + ": " + cause.getMessage());
             }
         }
     }
@@ -101,22 +107,17 @@ public class MobSpawnTask extends BukkitRunnable {
         Object[] args = new Object[types.length];
         Class<?> spawnStateClass = spawnState.getClass();
 
-        int boolCount = 0;
-        for (Class<?> t : types) if (t == boolean.class) boolCount++;
-        int boolSeen = 0;
-
         for (int i = 0; i < types.length; i++) {
             Class<?> t = types[i];
-            if (serverLevelClass.isAssignableFrom(t)) {
+            // t.isAssignableFrom(X) = "can we assign an X to a variable of type t?"
+            if (t.isAssignableFrom(serverLevelClass)) {
                 args[i] = serverLevel;
             } else if (t.isAssignableFrom(levelChunk.getClass())) {
                 args[i] = levelChunk;
             } else if (t.isAssignableFrom(spawnStateClass)) {
                 args[i] = spawnState;
             } else if (t == boolean.class) {
-                boolSeen++;
-                // last boolean = rareSpawn → false; all others → true
-                args[i] = boolSeen < boolCount;
+                args[i] = true; // enable all spawn categories
             } else {
                 args[i] = null;
             }
@@ -146,7 +147,7 @@ public class MobSpawnTask extends BukkitRunnable {
                 args[i] = nmsEntities;
             } else if (t == chunkGetterInterface) {
                 args[i] = chunkGetterProxy;
-            } else if (serverLevelClass.isAssignableFrom(t)) {
+            } else if (t.isAssignableFrom(serverLevelClass)) {
                 args[i] = serverLevel;
             } else {
                 args[i] = null; // @Nullable (e.g. LocalMobCapCalculator)
