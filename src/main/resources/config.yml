@@ -23,6 +23,18 @@
 #                  geeignet. "forced" und "plugin" sind die
 #                  korrekten persistenten Ticket-Typen.
 #
+#  force-spawning  Vanilla-Mob-Spawning läuft nur in Chunks
+#                  innerhalb der mobSpawnRange eines Spielers.
+#                  Wenn aktiviert, ruft ChunkTicker intern
+#                  NaturalSpawner.spawnForChunk() für alle
+#                  registrierten Chunks auf – unabhängig von
+#                  Spielernähe.
+#
+#    enabled       true = Mob-Spawning auch ohne Spieler
+#    interval-ticks Wie oft der Spawn-Versuch läuft (Ticks).
+#                  400 = 20 Sekunden (entspricht dem
+#                  vanilla Spawn-Takt pro Chunk)
+#
 #  chunks          Liste aller registrierten Chunks.
 #                  Wird automatisch von /ct set und /ct delete
 #                  verwaltet – nur bearbeiten wenn der Server
@@ -31,5 +43,9 @@
 
 global-enabled: true
 ticket-mode: both
+
+force-spawning:
+  enabled: true
+  interval-ticks: 400
 
 chunks: []
