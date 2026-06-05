@@ -6,7 +6,7 @@
 
     <groupId>de.emilo</groupId>
     <artifactId>ChunkTicker</artifactId>
-    <version>1.1.0</version>
+    <version>1.1</version>
     <packaging>jar</packaging>
 
     <name>ChunkTicker</name>
@@ -41,8 +41,6 @@
                 <artifactId>maven-compiler-plugin</artifactId>
                 <version>3.13.0</version>
                 <configuration>
-                    <source>${java.version}</source>
-                    <target>${java.version}</target>
                     <release>${java.version}</release>
                 </configuration>
             </plugin>
