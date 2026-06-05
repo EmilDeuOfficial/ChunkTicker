@@ -15,8 +15,10 @@ import java.util.logging.Level;
  * spawn-interval ticks — bypassing the vanilla restriction that mob spawning
  * only runs in chunks within a player's mobSpawnRange.
  *
- * Methods are discovered by name + parameter count rather than by hardcoded
- * internal class names so this works across all Paper 1.21.x sub-versions.
+ * Method discovery is fully dynamic: methods are found by name only, and
+ * invocation arguments are matched by parameter type — not by hardcoded
+ * positions or class names. This makes the task compatible with all
+ * Paper 1.21.x sub-versions regardless of internal refactors.
  */
 @SuppressWarnings({"unchecked", "rawtypes"})
 public class MobSpawnTask extends BukkitRunnable {
@@ -29,13 +31,13 @@ public class MobSpawnTask extends BukkitRunnable {
     private static Method craftWorldGetHandle;
     private static Method craftEntityGetHandle;
     private static Class<?> craftEntityClass;
+    private static Class<?> serverLevelClass;
 
     private static Method serverLevelGetChunkSource;
     private static Method serverLevelGetChunkIfLoaded;
 
     private static Field lastSpawnStateField;
 
-    // Discovered at runtime from method signatures – no hardcoded internal names
     private static Method naturalSpawnerCreateState;
     private static Method naturalSpawnerSpawnForChunk;
     private static Class<?> chunkGetterInterface;
@@ -67,8 +69,6 @@ public class MobSpawnTask extends BukkitRunnable {
         Object serverLevel = craftWorldGetHandle.invoke(world);
         Object chunkSource = serverLevelGetChunkSource.invoke(serverLevel);
 
-        // Reuse the spawn state already computed this tick (available when players are
-        // online). If null (no players online), build one from scratch.
         Object spawnState = lastSpawnStateField.get(chunkSource);
         if (spawnState == null) {
             spawnState = buildFreshSpawnState(world, serverLevel);
@@ -78,14 +78,89 @@ public class MobSpawnTask extends BukkitRunnable {
         Object levelChunk = serverLevelGetChunkIfLoaded.invoke(serverLevel, cx, cz);
         if (levelChunk == null) return;
 
-        // spawnForChunk(ServerLevel, LevelChunk, SpawnState, spawnFriendlies, spawnEnemies, rareSpawn)
-        naturalSpawnerSpawnForChunk.invoke(null, serverLevel, levelChunk, spawnState,
-                true, true, false);
+        invokeSpawnForChunk(serverLevel, levelChunk, spawnState);
     }
+
+    // -------------------------------------------------------
+    //  Dynamic invocations
+    // -------------------------------------------------------
+
+    /**
+     * Builds args for spawnForChunk by type-matching each parameter.
+     * Works for both the 4-param and 6-param variants.
+     *
+     *   ServerLevel  → serverLevel
+     *   LevelChunk   → levelChunk
+     *   SpawnState   → spawnState
+     *   boolean      → true (enable spawning), except last boolean → false (no rare spawns)
+     *   anything else → null
+     */
+    private void invokeSpawnForChunk(Object serverLevel, Object levelChunk, Object spawnState)
+            throws Exception {
+        Class<?>[] types = naturalSpawnerSpawnForChunk.getParameterTypes();
+        Object[] args = new Object[types.length];
+        Class<?> spawnStateClass = spawnState.getClass();
+
+        int boolCount = 0;
+        for (Class<?> t : types) if (t == boolean.class) boolCount++;
+        int boolSeen = 0;
+
+        for (int i = 0; i < types.length; i++) {
+            Class<?> t = types[i];
+            if (serverLevelClass.isAssignableFrom(t)) {
+                args[i] = serverLevel;
+            } else if (t.isAssignableFrom(levelChunk.getClass())) {
+                args[i] = levelChunk;
+            } else if (t.isAssignableFrom(spawnStateClass)) {
+                args[i] = spawnState;
+            } else if (t == boolean.class) {
+                boolSeen++;
+                // last boolean = rareSpawn → false; all others → true
+                args[i] = boolSeen < boolCount;
+            } else {
+                args[i] = null;
+            }
+        }
+        naturalSpawnerSpawnForChunk.invoke(null, args);
+    }
+
+    /**
+     * Builds args for createState by type-matching each parameter.
+     *
+     *   int              → chunkCount
+     *   Iterable         → nmsEntities
+     *   chunkGetterInterface → proxy
+     *   ServerLevel      → serverLevel (5-param variant)
+     *   anything else    → null  (@Nullable LocalMobCapCalculator etc.)
+     */
+    private Object invokeCreateState(Object serverLevel, List<Object> nmsEntities,
+            Object chunkGetterProxy, int chunkCount) throws Exception {
+        Class<?>[] types = naturalSpawnerCreateState.getParameterTypes();
+        Object[] args = new Object[types.length];
+
+        for (int i = 0; i < types.length; i++) {
+            Class<?> t = types[i];
+            if (t == int.class) {
+                args[i] = chunkCount;
+            } else if (t == Iterable.class) {
+                args[i] = nmsEntities;
+            } else if (t == chunkGetterInterface) {
+                args[i] = chunkGetterProxy;
+            } else if (serverLevelClass.isAssignableFrom(t)) {
+                args[i] = serverLevel;
+            } else {
+                args[i] = null; // @Nullable (e.g. LocalMobCapCalculator)
+            }
+        }
+        return naturalSpawnerCreateState.invoke(null, args);
+    }
+
+    // -------------------------------------------------------
+    //  Fresh SpawnState (no players online)
+    // -------------------------------------------------------
 
     private Object buildFreshSpawnState(World world, Object serverLevel) {
         try {
-            // Collect NMS entity handles (for mob-cap accounting)
             List<Object> nmsEntities = new ArrayList<>();
             for (org.bukkit.entity.Entity e : world.getEntities()) {
                 if (craftEntityClass.isInstance(e)) {
@@ -94,17 +169,14 @@ public class MobSpawnTask extends BukkitRunnable {
                 }
             }
 
-            // Proxy for NaturalSpawner.ChunkGetter (functional interface):
-            // void query(long chunkPosLong, Consumer<LevelChunk> consumer)
             Object chunkGetterProxy = Proxy.newProxyInstance(
                     chunkGetterInterface.getClassLoader(),
                     new Class[]{chunkGetterInterface},
                     (proxy, method, args) -> {
                         switch (method.getName()) {
                             case "query" -> {
-                                long pos  = (long) args[0];
+                                long pos = (long) args[0];
                                 Consumer cons = (Consumer) args[1];
-                                // ChunkPos: x = lower 32 bits, z = upper 32 bits
                                 int x = (int) (pos & 0xFFFFFFFFL);
                                 int z = (int) (pos >>> 32);
                                 try {
@@ -121,9 +193,7 @@ public class MobSpawnTask extends BukkitRunnable {
             );
 
             int chunkCount = Math.max(1, manager.getRegisteredChunkCount());
-            // Pass null for LocalMobCapCalculator → global mob cap, no per-player tracking
-            return naturalSpawnerCreateState.invoke(null, chunkCount, nmsEntities,
-                    chunkGetterProxy, null);
+            return invokeCreateState(serverLevel, nmsEntities, chunkGetterProxy, chunkCount);
         } catch (Exception e) {
             plugin.getLogger().log(Level.WARNING,
                     "MobSpawnTask: SpawnState-Erstellung fehlgeschlagen: " + e.getMessage());
@@ -132,62 +202,64 @@ public class MobSpawnTask extends BukkitRunnable {
     }
 
     // -------------------------------------------------------
-    //  NMS reflection – version-resilient method discovery
+    //  NMS reflection – fully dynamic method discovery
     // -------------------------------------------------------
 
     private boolean initNms() {
         if (nmsAvailable != null) return nmsAvailable;
         try {
-            // Bukkit bridge classes
             Class<?> craftWorldClass = Class.forName("org.bukkit.craftbukkit.CraftWorld");
             craftEntityClass         = Class.forName("org.bukkit.craftbukkit.entity.CraftEntity");
-            craftWorldGetHandle      = craftWorldClass.getMethod("getHandle");
-            craftEntityGetHandle     = craftEntityClass.getMethod("getHandle");
+            serverLevelClass         = Class.forName("net.minecraft.server.level.ServerLevel");
+            Class<?> chunkCacheClass = Class.forName("net.minecraft.server.level.ServerChunkCache");
+            Class<?> naturalSpawner  = Class.forName("net.minecraft.world.level.NaturalSpawner");
 
-            // ServerLevel
-            Class<?> serverLevelClass = Class.forName("net.minecraft.server.level.ServerLevel");
+            craftWorldGetHandle         = craftWorldClass.getMethod("getHandle");
+            craftEntityGetHandle        = craftEntityClass.getMethod("getHandle");
             serverLevelGetChunkSource   = serverLevelClass.getMethod("getChunkSource");
             serverLevelGetChunkIfLoaded = serverLevelClass.getMethod("getChunkIfLoaded", int.class, int.class);
 
-            // ServerChunkCache.lastSpawnState (Paper addition – stable field name)
-            Class<?> chunkCacheClass = Class.forName("net.minecraft.server.level.ServerChunkCache");
             lastSpawnStateField = chunkCacheClass.getDeclaredField("lastSpawnState");
             lastSpawnStateField.setAccessible(true);
 
-            // NaturalSpawner – discover methods by name + param count, not by internal class names.
-            // This avoids hard dependencies on LocalMobCapCalculator / ChunkGetter class names
-            // that may differ across Paper 1.21.x sub-versions.
-            Class<?> naturalSpawner = Class.forName("net.minecraft.world.level.NaturalSpawner");
-
+            // createState: find the overload that has a ChunkGetter-like interface param
+            // (any interface that is not java.lang.Iterable)
             for (Method m : naturalSpawner.getDeclaredMethods()) {
-                if (m.getName().equals("createState") && m.getParameterCount() == 4
-                        && m.getParameterTypes()[0] == int.class
-                        && m.getParameterTypes()[1] == Iterable.class) {
-                    m.setAccessible(true);
-                    naturalSpawnerCreateState = m;
-                    // Parameter [2] IS the ChunkGetter interface – grab it dynamically
-                    chunkGetterInterface = m.getParameterTypes()[2];
-                    break;
+                if (!m.getName().equals("createState")) continue;
+                for (Class<?> paramType : m.getParameterTypes()) {
+                    if (paramType.isInterface() && paramType != Iterable.class) {
+                        m.setAccessible(true);
+                        naturalSpawnerCreateState = m;
+                        chunkGetterInterface = paramType;
+                        break;
+                    }
                 }
+                if (naturalSpawnerCreateState != null) break;
             }
 
+            // spawnForChunk: take the static overload with the most parameters
+            // (more params = more spawn-category control)
             for (Method m : naturalSpawner.getDeclaredMethods()) {
-                if (m.getName().equals("spawnForChunk") && m.getParameterCount() == 6) {
-                    m.setAccessible(true);
+                if (!m.getName().equals("spawnForChunk")) continue;
+                if (!Modifier.isStatic(m.getModifiers())) continue;
+                m.setAccessible(true);
+                if (naturalSpawnerSpawnForChunk == null
+                        || m.getParameterCount() > naturalSpawnerSpawnForChunk.getParameterCount()) {
                     naturalSpawnerSpawnForChunk = m;
-                    break;
                 }
             }
 
-            if (naturalSpawnerCreateState == null || naturalSpawnerSpawnForChunk == null
-                    || chunkGetterInterface == null) {
-                throw new NoSuchMethodException(
-                        "createState(4) oder spawnForChunk(6) nicht in NaturalSpawner gefunden");
-            }
+            if (naturalSpawnerCreateState == null)
+                throw new NoSuchMethodException("createState mit ChunkGetter-Param nicht gefunden");
+            if (naturalSpawnerSpawnForChunk == null)
+                throw new NoSuchMethodException("spawnForChunk (static) nicht gefunden");
+            if (chunkGetterInterface == null)
+                throw new NoSuchMethodException("ChunkGetter-Interface nicht erkannt");
 
             nmsAvailable = true;
-            plugin.getLogger().info(
-                    "MobSpawnTask bereit – Mobs spawnen in registrierten Chunks auch ohne Spieler.");
+            plugin.getLogger().info("MobSpawnTask bereit (createState="
+                    + naturalSpawnerCreateState.getParameterCount() + " params, spawnForChunk="
+                    + naturalSpawnerSpawnForChunk.getParameterCount() + " params).");
         } catch (Exception e) {
             nmsAvailable = false;
             plugin.getLogger().log(Level.WARNING,
