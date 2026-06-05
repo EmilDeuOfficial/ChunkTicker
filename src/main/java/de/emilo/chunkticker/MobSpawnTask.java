@@ -7,48 +7,44 @@ import org.bukkit.entity.*;
 import org.bukkit.event.entity.CreatureSpawnEvent;
 import org.bukkit.scheduler.BukkitRunnable;
 
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.List;
 import java.util.concurrent.ThreadLocalRandom;
 import java.util.logging.Level;
 
 /**
- * Spawns mobs in registered chunks without requiring nearby players.
+ * Vanilla-like mob spawning for registered chunks without nearby players.
  *
- * HOSTILE (dark locations, block-light = 0):
- *   Overworld        – Zombie, Skeleton, Creeper, Spider, Witch, Enderman
- *   Crimson Forest   – Hoglin, Piglin
- *   Nether Wastes    – Zombified Piglin, Piglin, Wither Skeleton
- *   Soul Sand Valley – Skeleton, Wither Skeleton
- *   Basalt Deltas    – Magma Cube
- *   Warped Forest    – Enderman
- *   The End          – Enderman
+ * Rate control (mirrors vanilla feel):
+ *   1. One global hostile cap + one global passive cap across ALL chunks.
+ *      Animals that walk between chunks are still counted — no overflow.
+ *   2. Per-chunk secondary cap: chunk is skipped when already full.
+ *   3. Per-chunk random probability: not every chunk spawns every cycle.
+ *   4. Biome rules: Mushroom Fields → no hostile mobs (vanilla behaviour).
  *
- * PASSIVE (lit surface locations):
- *   Default Overworld – Sheep, Pig, Cow, Chicken, Rabbit
- *   Plains/Meadow     – + Horse
- *   Savanna           – Horse, Llama, Cow, Sheep
- *   Cold/Snow         – Polar Bear, Rabbit, Sheep
- *   Jungle            – Chicken, Pig, Cow
- *   Desert/Badlands   – Rabbit, Chicken
- *   Swamp             – Frog, Chicken, Pig
- *   Mushroom Fields   – Mooshroom
- *   Beach             – Turtle, Chicken
- *
- * IRON GOLEMS: spawn through villager AI (panic/sleep) — not this task.
- *   Entity-ticking (Level 31) is active in all registered chunks, so
- *   iron golem farms work automatically without any extra code here.
+ * All four values are tunable in config.yml under force-spawning.
  */
 public class MobSpawnTask extends BukkitRunnable {
 
     private final ChunkTicker plugin;
     private final ChunkManager manager;
+
+    // Loaded once in constructor; reloaded via /ct reload → new task instance
+    private final double spawnChance;
+    private final int globalHostileCap;
+    private final int globalPassiveCap;
     private final int maxHostilePerChunk;
     private final int maxPassivePerChunk;
 
     public MobSpawnTask(ChunkTicker plugin, ChunkManager manager) {
-        this.plugin = plugin;
-        this.manager = manager;
-        this.maxHostilePerChunk  = plugin.getConfig().getInt("force-spawning.max-mobs-per-chunk",         6);
-        this.maxPassivePerChunk  = plugin.getConfig().getInt("force-spawning.max-passive-mobs-per-chunk", 4);
+        this.plugin            = plugin;
+        this.manager           = manager;
+        this.spawnChance       = plugin.getConfig().getDouble("force-spawning.spawn-chance",        0.3);
+        this.globalHostileCap  = plugin.getConfig().getInt   ("force-spawning.global-hostile-cap",  15);
+        this.globalPassiveCap  = plugin.getConfig().getInt   ("force-spawning.global-passive-cap",  12);
+        this.maxHostilePerChunk= plugin.getConfig().getInt   ("force-spawning.max-hostile-per-chunk", 3);
+        this.maxPassivePerChunk= plugin.getConfig().getInt   ("force-spawning.max-passive-per-chunk", 2);
     }
 
     // -------------------------------------------------------
@@ -59,49 +55,108 @@ public class MobSpawnTask extends BukkitRunnable {
     public void run() {
         if (!manager.isGlobalEnabled()) return;
 
-        for (ChunkManager.ChunkEntry entry : manager.getRegisteredChunks()) {
+        List<ChunkManager.ChunkEntry> entries = new ArrayList<>(manager.getRegisteredChunks());
+        if (entries.isEmpty()) return;
+
+        // Step 1: count ALL mobs across ALL registered chunks once.
+        // This prevents the "animal wandered away → chunk looks empty → re-spawn" loop.
+        int totalHostile = 0, totalPassive = 0;
+        for (ChunkManager.ChunkEntry entry : entries) {
+            World w = Bukkit.getWorld(entry.worldName());
+            if (w == null) continue;
+            for (Entity e : w.getChunkAt(entry.x(), entry.z()).getEntities()) {
+                if (isHostile(e))       totalHostile++;
+                else if (e instanceof Animals) totalPassive++;
+            }
+        }
+
+        boolean hostileFull = totalHostile >= globalHostileCap;
+        boolean passiveFull = totalPassive >= globalPassiveCap;
+        if (hostileFull && passiveFull) return;
+
+        // Step 2: shuffle so no chunk is always first in line
+        Collections.shuffle(entries);
+
+        ThreadLocalRandom rand = ThreadLocalRandom.current();
+
+        for (ChunkManager.ChunkEntry entry : entries) {
+            // Per-chunk probability gate
+            if (rand.nextDouble() >= spawnChance) continue;
+
             World world = Bukkit.getWorld(entry.worldName());
             if (world == null) continue;
+
             try {
-                spawnInChunk(world, entry.x(), entry.z());
+                int[] delta = spawnInChunk(world, entry.x(), entry.z(), hostileFull, passiveFull);
+                totalHostile += delta[0];
+                totalPassive += delta[1];
+                hostileFull   = totalHostile >= globalHostileCap;
+                passiveFull   = totalPassive >= globalPassiveCap;
+                if (hostileFull && passiveFull) break;
             } catch (Exception e) {
                 plugin.getLogger().log(Level.WARNING,
-                        "MobSpawnTask Fehler [" + entry.worldName()
+                        "MobSpawnTask error [" + entry.worldName()
                                 + " " + entry.x() + "/" + entry.z() + "]", e);
             }
         }
     }
 
-    private void spawnInChunk(World world, int cx, int cz) {
-        World.Environment env = world.getEnvironment();
-        Biome biome = world.getBiome(cx * 16 + 8, 64, cz * 16 + 8);
+    /**
+     * Tries to spawn one hostile and one passive mob in the chunk.
+     * Returns int[]{hostileSpawned, passiveSpawned} (0 or 1 each).
+     */
+    private int[] spawnInChunk(World world, int cx, int cz,
+                                boolean globalHostileFull, boolean globalPassiveFull) {
+        World.Environment env   = world.getEnvironment();
+        Biome             biome = world.getBiome(cx * 16 + 8, 64, cz * 16 + 8);
 
-        // Count existing mobs
-        int hostiles = 0, passives = 0;
+        int hostileSpawned = 0, passiveSpawned = 0;
+
+        // --- Count mobs already in THIS chunk ---
+        int chunkHostile = 0, chunkPassive = 0;
         for (Entity e : world.getChunkAt(cx, cz).getEntities()) {
-            if (isHostile(e))       hostiles++;
-            else if (e instanceof Animals) passives++;
+            if (isHostile(e))       chunkHostile++;
+            else if (e instanceof Animals) chunkPassive++;
         }
 
         // --- Hostile spawn ---
-        if (hostiles < maxHostilePerChunk) {
+        if (!globalHostileFull
+                && chunkHostile < maxHostilePerChunk
+                && allowsHostileMobs(biome)) {
             Location loc = findHostileLocation(world, cx, cz, env);
             if (loc != null) {
                 EntityType type = pickHostileMob(biome, env);
-                if (type != null)
+                if (type != null) {
                     world.spawnEntity(loc, type, CreatureSpawnEvent.SpawnReason.NATURAL);
+                    hostileSpawned = 1;
+                }
             }
         }
 
-        // --- Passive spawn (Overworld only; Nether/End have no passive surface mobs) ---
-        if (env == World.Environment.NORMAL && passives < maxPassivePerChunk) {
+        // --- Passive spawn (Overworld only) ---
+        if (!globalPassiveFull
+                && chunkPassive < maxPassivePerChunk
+                && env == World.Environment.NORMAL) {
             Location loc = findSurfaceLocation(world, cx, cz);
             if (loc != null) {
                 EntityType type = pickPassiveMob(biome);
-                if (type != null)
+                if (type != null) {
                     world.spawnEntity(loc, type, CreatureSpawnEvent.SpawnReason.NATURAL);
+                    passiveSpawned = 1;
+                }
             }
         }
+
+        return new int[]{hostileSpawned, passiveSpawned};
+    }
+
+    // -------------------------------------------------------
+    //  Biome rules
+    // -------------------------------------------------------
+
+    /** Mushroom Fields have no hostile mob spawning in vanilla. */
+    private static boolean allowsHostileMobs(Biome biome) {
+        return biome != Biome.MUSHROOM_FIELDS;
     }
 
     // -------------------------------------------------------
@@ -148,13 +203,16 @@ public class MobSpawnTask extends BukkitRunnable {
                                                                             EntityType.COW,   EntityType.SHEEP);
             case DESERT, BADLANDS,
                  WOODED_BADLANDS, ERODED_BADLANDS              -> pick(rand, EntityType.RABBIT, EntityType.CHICKEN);
-            case JUNGLE, BAMBOO_JUNGLE, SPARSE_JUNGLE          -> pick(rand, EntityType.CHICKEN, EntityType.PIG, EntityType.COW);
+            case JUNGLE, BAMBOO_JUNGLE, SPARSE_JUNGLE          -> pick(rand, EntityType.CHICKEN, EntityType.PIG,
+                                                                            EntityType.COW);
             case FROZEN_OCEAN, COLD_OCEAN,
                  FROZEN_RIVER, FROZEN_PEAKS, JAGGED_PEAKS,
-                 SNOWY_PLAINS, SNOWY_SLOPES, SNOWY_TAIGA       -> pick(rand, EntityType.POLAR_BEAR, EntityType.RABBIT, EntityType.SHEEP);
-            case SWAMP, MANGROVE_SWAMP                         -> pick(rand, EntityType.FROG, EntityType.CHICKEN, EntityType.PIG);
+                 SNOWY_PLAINS, SNOWY_SLOPES, SNOWY_TAIGA       -> pick(rand, EntityType.POLAR_BEAR,
+                                                                            EntityType.RABBIT, EntityType.SHEEP);
+            case SWAMP, MANGROVE_SWAMP                         -> pick(rand, EntityType.FROG,
+                                                                            EntityType.CHICKEN, EntityType.PIG);
             default                                            -> pick(rand, EntityType.SHEEP, EntityType.PIG,
-                                                                            EntityType.COW,   EntityType.CHICKEN,
+                                                                            EntityType.COW,    EntityType.CHICKEN,
                                                                             EntityType.RABBIT);
         };
     }
@@ -163,9 +221,8 @@ public class MobSpawnTask extends BukkitRunnable {
     //  Location finding
     // -------------------------------------------------------
 
-    /** Dark underground location (block light = 0) for hostile mobs. */
     private Location findHostileLocation(World world, int cx, int cz, World.Environment env) {
-        ThreadLocalRandom rand = ThreadLocalRandom.current();
+        ThreadLocalRandom rand  = ThreadLocalRandom.current();
         int minY = world.getMinHeight() + 2;
         int maxY = world.getMaxHeight() - 3;
         boolean requireDark = (env == World.Environment.NORMAL);
@@ -196,7 +253,6 @@ public class MobSpawnTask extends BukkitRunnable {
         return null;
     }
 
-    /** Lit surface location for passive mobs. */
     private Location findSurfaceLocation(World world, int cx, int cz) {
         ThreadLocalRandom rand = ThreadLocalRandom.current();
 
@@ -209,9 +265,9 @@ public class MobSpawnTask extends BukkitRunnable {
             Block feet  = world.getBlockAt(x, y + 1, z);
             Block head  = world.getBlockAt(x, y + 2, z);
 
-            if (!floor.getType().isSolid())      continue;
-            if (feet.getType() != Material.AIR)  continue;
-            if (head.getType() != Material.AIR)  continue;
+            if (!floor.getType().isSolid())     continue;
+            if (feet.getType() != Material.AIR) continue;
+            if (head.getType() != Material.AIR) continue;
 
             return new Location(world, x + 0.5, y + 1, z + 0.5);
         }

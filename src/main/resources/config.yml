@@ -1,45 +1,6 @@
 # ============================================================
 #  ChunkTicker – Konfiguration
 # ============================================================
-#
-#  global-enabled  Ob das Plugin aktiv ist. Bei false werden
-#                  keine Tickets gesetzt; Chunks bleiben aber
-#                  in der Liste gespeichert.
-#
-#  ticket-mode     Welcher Ticket-Typ für geladene Chunks
-#                  gesetzt wird:
-#
-#    plugin  → addPluginChunkTicket()  (TicketType.PLUGIN, Level 31)
-#    forced  → setChunkForceLoaded()   (TicketType.FORCED, Level 31)
-#    both    → beide gleichzeitig (Standard, empfohlen)
-#
-#                  Level 31 = entity-ticking: Mobs spawnen,
-#                  Entitäten ticken, Redstone läuft.
-#                  Alle drei Modi erlauben volles Mob-Spawning
-#                  (Eisengolem-, Creeper-, Hoglin-Farmen).
-#
-#                  Hinweis: TicketType.UNKNOWN hat timeout=1
-#                  tick und ist für persistentes Laden NICHT
-#                  geeignet. "forced" und "plugin" sind die
-#                  korrekten persistenten Ticket-Typen.
-#
-#  force-spawning  Vanilla-Mob-Spawning läuft nur in Chunks
-#                  innerhalb der mobSpawnRange eines Spielers.
-#                  Wenn aktiviert, ruft ChunkTicker intern
-#                  NaturalSpawner.spawnForChunk() für alle
-#                  registrierten Chunks auf – unabhängig von
-#                  Spielernähe.
-#
-#    enabled       true = Mob-Spawning auch ohne Spieler
-#    interval-ticks Wie oft der Spawn-Versuch läuft (Ticks).
-#                  400 = 20 Sekunden (entspricht dem
-#                  vanilla Spawn-Takt pro Chunk)
-#
-#  chunks          Liste aller registrierten Chunks.
-#                  Wird automatisch von /ct set und /ct delete
-#                  verwaltet – nur bearbeiten wenn der Server
-#                  gestoppt ist!
-# ============================================================
 
 global-enabled: true
 ticket-mode: both
@@ -50,8 +11,24 @@ language: en
 
 force-spawning:
   enabled: true
+
+  # How often a spawn attempt runs (in ticks). 400 = 20 seconds.
   interval-ticks: 400
-  # Max hostile mobs per chunk before spawn attempts are skipped
-  max-mobs-per-chunk: 6
+
+  # Probability (0.0–1.0) that any single chunk gets a spawn attempt
+  # each cycle. 0.3 = roughly 1 in 3 cycles per chunk, similar to
+  # how vanilla spreads spawns across a player's view distance.
+  spawn-chance: 0.3
+
+  # Hard cap on the TOTAL number of hostile / passive mobs across
+  # ALL registered chunks combined. Once reached, no more of that
+  # category are spawned until mobs die or leave the area.
+  global-hostile-cap: 15
+  global-passive-cap: 12
+
+  # Per-chunk secondary cap. Spawn is skipped for a chunk that
+  # already has at least this many mobs of that category inside it.
+  max-hostile-per-chunk: 3
+  max-passive-per-chunk: 2
 
 chunks: []
