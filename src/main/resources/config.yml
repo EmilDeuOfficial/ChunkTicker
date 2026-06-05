@@ -47,5 +47,7 @@ ticket-mode: both
 force-spawning:
   enabled: true
   interval-ticks: 400
+  # Max hostile mobs per chunk before spawn attempts are skipped
+  max-mobs-per-chunk: 6
 
 chunks: []

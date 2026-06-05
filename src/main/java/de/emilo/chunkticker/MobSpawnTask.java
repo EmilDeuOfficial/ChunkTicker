@@ -1,56 +1,46 @@
 package de.emilo.chunkticker;
 
-import org.bukkit.Bukkit;
-import org.bukkit.World;
+import org.bukkit.*;
+import org.bukkit.block.Block;
+import org.bukkit.entity.*;
+import org.bukkit.event.entity.CreatureSpawnEvent;
 import org.bukkit.scheduler.BukkitRunnable;
 
-import java.lang.reflect.*;
-import java.util.ArrayList;
-import java.util.List;
-import java.util.function.Consumer;
+import java.util.concurrent.ThreadLocalRandom;
 import java.util.logging.Level;
 
 /**
- * Triggers NaturalSpawner.spawnForChunk() for every registered chunk each
- * spawn-interval ticks — bypassing the vanilla restriction that mob spawning
- * only runs in chunks within a player's mobSpawnRange.
+ * Spawns mobs in registered chunks using only the Bukkit API.
+ * No NMS / reflection required — works on all Paper 1.21.x builds.
  *
- * Method discovery is fully dynamic: methods are found by name only, and
- * invocation arguments are matched by parameter type — not by hardcoded
- * positions or class names. This makes the task compatible with all
- * Paper 1.21.x sub-versions regardless of internal refactors.
+ * Per spawn cycle (every interval-ticks):
+ *  - Checks per-chunk hostile entity count against max-mobs-per-chunk
+ *  - Searches for a valid dark location (block light = 0, solid floor, 3 air above)
+ *  - Spawns a biome-appropriate hostile mob with SpawnReason.NATURAL
+ *  - Respects Paper's built-in spawn event / mob-cap pipeline
  */
-@SuppressWarnings({"unchecked", "rawtypes"})
 public class MobSpawnTask extends BukkitRunnable {
+
+    private static final EntityType[] OVERWORLD_MOBS = {
+            EntityType.ZOMBIE, EntityType.SKELETON, EntityType.CREEPER
+    };
+    private static final EntityType[] NETHER_MOBS = {
+            EntityType.ZOMBIFIED_PIGLIN, EntityType.WITHER_SKELETON
+    };
 
     private final ChunkTicker plugin;
     private final ChunkManager manager;
-
-    private static Boolean nmsAvailable = null;
-
-    private static Method craftWorldGetHandle;
-    private static Method craftEntityGetHandle;
-    private static Class<?> craftEntityClass;
-    private static Class<?> serverLevelClass;
-
-    private static Method serverLevelGetChunkSource;
-    private static Method serverLevelGetChunkIfLoaded;
-
-    private static Field lastSpawnStateField;
-
-    private static Method naturalSpawnerCreateState;
-    private static Method naturalSpawnerSpawnForChunk;
-    private static Class<?> chunkGetterInterface;
+    private final int maxMobsPerChunk;
 
     public MobSpawnTask(ChunkTicker plugin, ChunkManager manager) {
         this.plugin = plugin;
         this.manager = manager;
+        this.maxMobsPerChunk = plugin.getConfig().getInt("force-spawning.max-mobs-per-chunk", 6);
     }
 
     @Override
     public void run() {
         if (!manager.isGlobalEnabled()) return;
-        if (!initNms()) return;
 
         for (ChunkManager.ChunkEntry entry : manager.getRegisteredChunks()) {
             World world = Bukkit.getWorld(entry.worldName());
@@ -58,216 +48,73 @@ public class MobSpawnTask extends BukkitRunnable {
             try {
                 spawnInChunk(world, entry.x(), entry.z());
             } catch (Exception e) {
-                // Unwrap InvocationTargetException so we see the real cause
-                Throwable cause = e;
-                while (cause instanceof InvocationTargetException && cause.getCause() != null) {
-                    cause = cause.getCause();
-                }
                 plugin.getLogger().log(Level.WARNING,
                         "MobSpawnTask Fehler [" + entry.worldName()
-                                + " " + entry.x() + "/" + entry.z() + "]: "
-                                + cause.getClass().getSimpleName() + ": " + cause.getMessage());
+                                + " " + entry.x() + "/" + entry.z() + "]", e);
             }
         }
     }
 
-    private void spawnInChunk(World world, int cx, int cz) throws Exception {
-        Object serverLevel = craftWorldGetHandle.invoke(world);
-        Object chunkSource = serverLevelGetChunkSource.invoke(serverLevel);
+    private void spawnInChunk(World world, int cx, int cz) {
+        Chunk chunk = world.getChunkAt(cx, cz);
 
-        Object spawnState = lastSpawnStateField.get(chunkSource);
-        if (spawnState == null) {
-            spawnState = buildFreshSpawnState(world, serverLevel);
+        // Count existing hostile mobs in this chunk
+        int monsters = 0;
+        for (Entity e : chunk.getEntities()) {
+            if (e instanceof Monster) monsters++;
         }
-        if (spawnState == null) return;
+        if (monsters >= maxMobsPerChunk) return;
 
-        Object levelChunk = serverLevelGetChunkIfLoaded.invoke(serverLevel, cx, cz);
-        if (levelChunk == null) return;
+        Location loc = findDarkLocation(world, cx, cz);
+        if (loc == null) return;
 
-        invokeSpawnForChunk(serverLevel, levelChunk, spawnState);
-    }
+        EntityType type = pickMobType(world, loc);
+        if (type == null) return;
 
-    // -------------------------------------------------------
-    //  Dynamic invocations
-    // -------------------------------------------------------
-
-    /**
-     * Builds args for spawnForChunk by type-matching each parameter.
-     * Works for both the 4-param and 6-param variants.
-     *
-     *   ServerLevel  → serverLevel
-     *   LevelChunk   → levelChunk
-     *   SpawnState   → spawnState
-     *   boolean      → true (enable spawning), except last boolean → false (no rare spawns)
-     *   anything else → null
-     */
-    private void invokeSpawnForChunk(Object serverLevel, Object levelChunk, Object spawnState)
-            throws Exception {
-        Class<?>[] types = naturalSpawnerSpawnForChunk.getParameterTypes();
-        Object[] args = new Object[types.length];
-        Class<?> spawnStateClass = spawnState.getClass();
-
-        for (int i = 0; i < types.length; i++) {
-            Class<?> t = types[i];
-            // t.isAssignableFrom(X) = "can we assign an X to a variable of type t?"
-            if (t.isAssignableFrom(serverLevelClass)) {
-                args[i] = serverLevel;
-            } else if (t.isAssignableFrom(levelChunk.getClass())) {
-                args[i] = levelChunk;
-            } else if (t.isAssignableFrom(spawnStateClass)) {
-                args[i] = spawnState;
-            } else if (t == boolean.class) {
-                args[i] = true; // enable all spawn categories
-            } else {
-                args[i] = null;
-            }
-        }
-        naturalSpawnerSpawnForChunk.invoke(null, args);
+        world.spawnEntity(loc, type, CreatureSpawnEvent.SpawnReason.NATURAL);
     }
 
     /**
-     * Builds args for createState by type-matching each parameter.
-     *
-     *   int              → chunkCount
-     *   Iterable         → nmsEntities
-     *   chunkGetterInterface → proxy
-     *   ServerLevel      → serverLevel (5-param variant)
-     *   anything else    → null  (@Nullable LocalMobCapCalculator etc.)
+     * Scans random positions in the chunk for a valid hostile-mob spawn location:
+     * block light level 0, solid block below, 3 air blocks above.
      */
-    private Object invokeCreateState(Object serverLevel, List<Object> nmsEntities,
-            Object chunkGetterProxy, int chunkCount) throws Exception {
-        Class<?>[] types = naturalSpawnerCreateState.getParameterTypes();
-        Object[] args = new Object[types.length];
+    private Location findDarkLocation(World world, int cx, int cz) {
+        ThreadLocalRandom rand = ThreadLocalRandom.current();
+        int minY = world.getMinHeight() + 2;
+        int maxY = world.getMaxHeight() - 3;
 
-        for (int i = 0; i < types.length; i++) {
-            Class<?> t = types[i];
-            if (t == int.class) {
-                args[i] = chunkCount;
-            } else if (t == Iterable.class) {
-                args[i] = nmsEntities;
-            } else if (t == chunkGetterInterface) {
-                args[i] = chunkGetterProxy;
-            } else if (t.isAssignableFrom(serverLevelClass)) {
-                args[i] = serverLevel;
-            } else {
-                args[i] = null; // @Nullable (e.g. LocalMobCapCalculator)
+        for (int attempt = 0; attempt < 12; attempt++) {
+            int x = cx * 16 + rand.nextInt(16);
+            int z = cz * 16 + rand.nextInt(16);
+
+            // Start below surface to find darkness
+            int surfaceY = Math.min(world.getHighestBlockYAt(x, z) - 1, maxY);
+            int startY = Math.max(minY, surfaceY);
+
+            for (int y = startY; y >= minY; y--) {
+                Block floor  = world.getBlockAt(x, y - 1, z);
+                Block feet   = world.getBlockAt(x, y,     z);
+                Block head   = world.getBlockAt(x, y + 1, z);
+                Block above2 = world.getBlockAt(x, y + 2, z);
+
+                if (!floor.getType().isSolid())           continue;
+                if (feet.getType()   != Material.AIR)     continue;
+                if (head.getType()   != Material.AIR)     continue;
+                if (above2.getType() != Material.AIR)     continue;
+                if (feet.getLightFromBlocks() > 0)        continue; // block light must be 0
+
+                return new Location(world, x + 0.5, y, z + 0.5);
             }
         }
-        return naturalSpawnerCreateState.invoke(null, args);
+        return null;
     }
 
-    // -------------------------------------------------------
-    //  Fresh SpawnState (no players online)
-    // -------------------------------------------------------
-
-    private Object buildFreshSpawnState(World world, Object serverLevel) {
-        try {
-            List<Object> nmsEntities = new ArrayList<>();
-            for (org.bukkit.entity.Entity e : world.getEntities()) {
-                if (craftEntityClass.isInstance(e)) {
-                    Object handle = craftEntityGetHandle.invoke(e);
-                    if (handle != null) nmsEntities.add(handle);
-                }
-            }
-
-            Object chunkGetterProxy = Proxy.newProxyInstance(
-                    chunkGetterInterface.getClassLoader(),
-                    new Class[]{chunkGetterInterface},
-                    (proxy, method, args) -> {
-                        switch (method.getName()) {
-                            case "query" -> {
-                                long pos = (long) args[0];
-                                Consumer cons = (Consumer) args[1];
-                                int x = (int) (pos & 0xFFFFFFFFL);
-                                int z = (int) (pos >>> 32);
-                                try {
-                                    Object chunk = serverLevelGetChunkIfLoaded.invoke(serverLevel, x, z);
-                                    if (chunk != null) cons.accept(chunk);
-                                } catch (Exception ignored) {}
-                            }
-                            case "equals"   -> { return proxy == (args != null ? args[0] : null); }
-                            case "hashCode" -> { return System.identityHashCode(proxy); }
-                            case "toString" -> { return "ChunkGetterProxy"; }
-                        }
-                        return null;
-                    }
-            );
-
-            int chunkCount = Math.max(1, manager.getRegisteredChunkCount());
-            return invokeCreateState(serverLevel, nmsEntities, chunkGetterProxy, chunkCount);
-        } catch (Exception e) {
-            plugin.getLogger().log(Level.WARNING,
-                    "MobSpawnTask: SpawnState-Erstellung fehlgeschlagen: " + e.getMessage());
-            return null;
-        }
-    }
-
-    // -------------------------------------------------------
-    //  NMS reflection – fully dynamic method discovery
-    // -------------------------------------------------------
-
-    private boolean initNms() {
-        if (nmsAvailable != null) return nmsAvailable;
-        try {
-            Class<?> craftWorldClass = Class.forName("org.bukkit.craftbukkit.CraftWorld");
-            craftEntityClass         = Class.forName("org.bukkit.craftbukkit.entity.CraftEntity");
-            serverLevelClass         = Class.forName("net.minecraft.server.level.ServerLevel");
-            Class<?> chunkCacheClass = Class.forName("net.minecraft.server.level.ServerChunkCache");
-            Class<?> naturalSpawner  = Class.forName("net.minecraft.world.level.NaturalSpawner");
-
-            craftWorldGetHandle         = craftWorldClass.getMethod("getHandle");
-            craftEntityGetHandle        = craftEntityClass.getMethod("getHandle");
-            serverLevelGetChunkSource   = serverLevelClass.getMethod("getChunkSource");
-            serverLevelGetChunkIfLoaded = serverLevelClass.getMethod("getChunkIfLoaded", int.class, int.class);
-
-            lastSpawnStateField = chunkCacheClass.getDeclaredField("lastSpawnState");
-            lastSpawnStateField.setAccessible(true);
-
-            // createState: find the overload that has a ChunkGetter-like interface param
-            // (any interface that is not java.lang.Iterable)
-            for (Method m : naturalSpawner.getDeclaredMethods()) {
-                if (!m.getName().equals("createState")) continue;
-                for (Class<?> paramType : m.getParameterTypes()) {
-                    if (paramType.isInterface() && paramType != Iterable.class) {
-                        m.setAccessible(true);
-                        naturalSpawnerCreateState = m;
-                        chunkGetterInterface = paramType;
-                        break;
-                    }
-                }
-                if (naturalSpawnerCreateState != null) break;
-            }
-
-            // spawnForChunk: take the static overload with the most parameters
-            // (more params = more spawn-category control)
-            for (Method m : naturalSpawner.getDeclaredMethods()) {
-                if (!m.getName().equals("spawnForChunk")) continue;
-                if (!Modifier.isStatic(m.getModifiers())) continue;
-                m.setAccessible(true);
-                if (naturalSpawnerSpawnForChunk == null
-                        || m.getParameterCount() > naturalSpawnerSpawnForChunk.getParameterCount()) {
-                    naturalSpawnerSpawnForChunk = m;
-                }
-            }
-
-            if (naturalSpawnerCreateState == null)
-                throw new NoSuchMethodException("createState mit ChunkGetter-Param nicht gefunden");
-            if (naturalSpawnerSpawnForChunk == null)
-                throw new NoSuchMethodException("spawnForChunk (static) nicht gefunden");
-            if (chunkGetterInterface == null)
-                throw new NoSuchMethodException("ChunkGetter-Interface nicht erkannt");
-
-            nmsAvailable = true;
-            plugin.getLogger().info("MobSpawnTask bereit (createState="
-                    + naturalSpawnerCreateState.getParameterCount() + " params, spawnForChunk="
-                    + naturalSpawnerSpawnForChunk.getParameterCount() + " params).");
-        } catch (Exception e) {
-            nmsAvailable = false;
-            plugin.getLogger().log(Level.WARNING,
-                    "MobSpawnTask NMS-Init fehlgeschlagen (" + e.getMessage() + "). "
-                  + "Mob-Spawning ohne Spieler ist nicht verfügbar.");
-            this.cancel();
-        }
-        return nmsAvailable;
+    private EntityType pickMobType(World world, Location loc) {
+        ThreadLocalRandom rand = ThreadLocalRandom.current();
+        return switch (world.getEnvironment()) {
+            case NETHER  -> NETHER_MOBS[rand.nextInt(NETHER_MOBS.length)];
+            case THE_END -> EntityType.ENDERMAN;
+            default      -> OVERWORLD_MOBS[rand.nextInt(OVERWORLD_MOBS.length)];
+        };
     }
 }
