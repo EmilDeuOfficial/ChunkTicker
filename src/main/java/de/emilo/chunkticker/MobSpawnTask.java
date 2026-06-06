@@ -16,13 +16,10 @@ import java.util.logging.Level;
 /**
  * Spawns mobs in registered chunks without requiring nearby players.
  *
- * Why not NaturalSpawner (NMS) directly?
- *   paper-mojangapi (compile-time NMS access) is not published to Paper's
- *   Maven repo for 1.21. Pure reflection works but has the same version-
- *   fragility we already debugged. The Bukkit approach below is stable
- *   across all 1.21.x builds.
+ * Tries NmsSpawner (real vanilla NaturalSpawner) first on each cycle.
+ * Falls back to the Bukkit-based spawner permanently if NMS throws.
  *
- * Rate control:
+ * Rate control (Bukkit fallback only — NMS uses Paper's own mob cap):
  *   1. Global hostile + passive cap across ALL registered chunks at once.
  *      Animals that wander between chunks still count — prevents overflow.
  *   2. Per-chunk secondary cap.
@@ -38,6 +35,9 @@ public class MobSpawnTask extends BukkitRunnable {
 
     private final ChunkTicker plugin;
     private final ChunkManager manager;
+
+    /** Flipped to false permanently on first NMS failure. */
+    private boolean nmsEnabled = true;
 
     private final double spawnChance;
     private final int globalHostileCap;
@@ -79,6 +79,23 @@ public class MobSpawnTask extends BukkitRunnable {
             }
         }
 
+        // --- NMS path: real vanilla spawner, no custom logic needed ---
+        if (nmsEnabled) {
+            boolean anyFailed = false;
+            for (ChunkManager.ChunkEntry entry : entries) {
+                World world = Bukkit.getWorld(entry.worldName());
+                if (world == null) continue;
+                if (!NmsSpawner.spawnForChunk(world, entry.x(), entry.z(), plugin.getLogger())) {
+                    anyFailed = true;
+                    break;
+                }
+            }
+            if (!anyFailed) return;
+            plugin.getLogger().warning("Switching to Bukkit fallback spawner permanently.");
+            nmsEnabled = false;
+        }
+
+        // --- Bukkit fallback ---
         boolean hostileFull = totalHostile >= globalHostileCap;
         boolean passiveFull = totalPassive >= globalPassiveCap;
         if (hostileFull && passiveFull) return;
@@ -166,14 +183,11 @@ public class MobSpawnTask extends BukkitRunnable {
     private EntityType pickHostileMob(Biome biome, World.Environment env) {
         ThreadLocalRandom rand = ThreadLocalRandom.current();
         if (env == World.Environment.NETHER) {
-            return switch (biome) {
-                case CRIMSON_FOREST   -> rand.nextBoolean() ? EntityType.HOGLIN : EntityType.PIGLIN;
-                case SOUL_SAND_VALLEY -> pick(rand, EntityType.SKELETON, EntityType.WITHER_SKELETON);
-                case BASALT_DELTAS    -> EntityType.MAGMA_CUBE;
-                case WARPED_FOREST    -> EntityType.ENDERMAN;
-                default               -> pick(rand, EntityType.ZOMBIFIED_PIGLIN,
-                                                    EntityType.PIGLIN, EntityType.WITHER_SKELETON);
-            };
+            if (biome == Biome.CRIMSON_FOREST)   return rand.nextBoolean() ? EntityType.HOGLIN : EntityType.PIGLIN;
+            if (biome == Biome.SOUL_SAND_VALLEY) return pick(rand, EntityType.SKELETON, EntityType.WITHER_SKELETON);
+            if (biome == Biome.BASALT_DELTAS)    return EntityType.MAGMA_CUBE;
+            if (biome == Biome.WARPED_FOREST)    return EntityType.ENDERMAN;
+            return pick(rand, EntityType.ZOMBIFIED_PIGLIN, EntityType.PIGLIN, EntityType.WITHER_SKELETON);
         }
         if (env == World.Environment.THE_END) return EntityType.ENDERMAN;
         return pick(rand, EntityType.ZOMBIE, EntityType.SKELETON,
@@ -182,30 +196,30 @@ public class MobSpawnTask extends BukkitRunnable {
 
     private EntityType pickPassiveMob(Biome biome) {
         ThreadLocalRandom rand = ThreadLocalRandom.current();
-        return switch (biome) {
-            case MUSHROOM_FIELDS                               -> EntityType.MOOSHROOM;
-            case BEACH, STONY_SHORE                            -> pick(rand, EntityType.TURTLE, EntityType.CHICKEN);
-            case SNOWY_BEACH                                   -> pick(rand, EntityType.RABBIT, EntityType.CHICKEN);
-            case PLAINS, SUNFLOWER_PLAINS, MEADOW, CHERRY_GROVE
-                                                               -> pick(rand, EntityType.SHEEP, EntityType.COW,
-                                                                            EntityType.HORSE, EntityType.PIG,
-                                                                            EntityType.CHICKEN);
-            case SAVANNA, SAVANNA_PLATEAU, WINDSWEPT_SAVANNA   -> pick(rand, EntityType.HORSE, EntityType.LLAMA,
-                                                                            EntityType.COW, EntityType.SHEEP);
-            case DESERT, BADLANDS,
-                 WOODED_BADLANDS, ERODED_BADLANDS              -> pick(rand, EntityType.RABBIT, EntityType.CHICKEN);
-            case JUNGLE, BAMBOO_JUNGLE, SPARSE_JUNGLE          -> pick(rand, EntityType.CHICKEN,
-                                                                            EntityType.PIG, EntityType.COW);
-            case FROZEN_OCEAN, COLD_OCEAN, FROZEN_RIVER,
-                 FROZEN_PEAKS, JAGGED_PEAKS, SNOWY_PLAINS,
-                 SNOWY_SLOPES, SNOWY_TAIGA                     -> pick(rand, EntityType.POLAR_BEAR,
-                                                                            EntityType.RABBIT, EntityType.SHEEP);
-            case SWAMP, MANGROVE_SWAMP                         -> pick(rand, EntityType.FROG,
-                                                                            EntityType.CHICKEN, EntityType.PIG);
-            default                                            -> pick(rand, EntityType.SHEEP, EntityType.PIG,
-                                                                            EntityType.COW, EntityType.CHICKEN,
-                                                                            EntityType.RABBIT);
-        };
+        if (biome == Biome.MUSHROOM_FIELDS)
+            return EntityType.MOOSHROOM;
+        if (biome == Biome.BEACH || biome == Biome.STONY_SHORE)
+            return pick(rand, EntityType.TURTLE, EntityType.CHICKEN);
+        if (biome == Biome.SNOWY_BEACH)
+            return pick(rand, EntityType.RABBIT, EntityType.CHICKEN);
+        if (biome == Biome.PLAINS || biome == Biome.SUNFLOWER_PLAINS
+                || biome == Biome.MEADOW || biome == Biome.CHERRY_GROVE)
+            return pick(rand, EntityType.SHEEP, EntityType.COW, EntityType.HORSE,
+                    EntityType.PIG, EntityType.CHICKEN);
+        if (biome == Biome.SAVANNA || biome == Biome.SAVANNA_PLATEAU || biome == Biome.WINDSWEPT_SAVANNA)
+            return pick(rand, EntityType.HORSE, EntityType.LLAMA, EntityType.COW, EntityType.SHEEP);
+        if (biome == Biome.DESERT || biome == Biome.BADLANDS
+                || biome == Biome.WOODED_BADLANDS || biome == Biome.ERODED_BADLANDS)
+            return pick(rand, EntityType.RABBIT, EntityType.CHICKEN);
+        if (biome == Biome.JUNGLE || biome == Biome.BAMBOO_JUNGLE || biome == Biome.SPARSE_JUNGLE)
+            return pick(rand, EntityType.CHICKEN, EntityType.PIG, EntityType.COW);
+        if (biome == Biome.FROZEN_OCEAN || biome == Biome.COLD_OCEAN || biome == Biome.FROZEN_RIVER
+                || biome == Biome.FROZEN_PEAKS || biome == Biome.JAGGED_PEAKS
+                || biome == Biome.SNOWY_PLAINS || biome == Biome.SNOWY_SLOPES || biome == Biome.SNOWY_TAIGA)
+            return pick(rand, EntityType.POLAR_BEAR, EntityType.RABBIT, EntityType.SHEEP);
+        if (biome == Biome.SWAMP || biome == Biome.MANGROVE_SWAMP)
+            return pick(rand, EntityType.FROG, EntityType.CHICKEN, EntityType.PIG);
+        return pick(rand, EntityType.SHEEP, EntityType.PIG, EntityType.COW, EntityType.CHICKEN, EntityType.RABBIT);
     }
 
     // -------------------------------------------------------

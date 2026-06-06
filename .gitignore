@@ -2,3 +2,8 @@ target/
 versions/
 .claude/
 *.class
+server/
+context-engineering-intro/
+img/
+skills-lock.json
+.agents/

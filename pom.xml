@@ -25,11 +25,21 @@
     </repositories>
 
     <dependencies>
-        <!-- Paper API 1.21 – lowest 1.21.x, compatible with all 1.21 sub-versions -->
+        <!-- Paper API 1.21.8 -->
         <dependency>
             <groupId>io.papermc.paper</groupId>
             <artifactId>paper-api</artifactId>
-            <version>1.21-R0.1-SNAPSHOT</version>
+            <version>1.21.8-R0.1-SNAPSHOT</version>
+            <scope>provided</scope>
+        </dependency>
+        <!-- Paper server JAR for NMS compile-time access.
+             Install once: mvn install:install-file -Dfile=server/paper-1.21.8.jar
+                 -DgroupId=io.papermc.paper -DartifactId=paper-server -Dversion=1.21.8 -Dpackaging=jar
+             NOT bundled in the plugin (scope=provided). -->
+        <dependency>
+            <groupId>io.papermc.paper</groupId>
+            <artifactId>paper-server</artifactId>
+            <version>1.21.8</version>
             <scope>provided</scope>
         </dependency>
     </dependencies>
