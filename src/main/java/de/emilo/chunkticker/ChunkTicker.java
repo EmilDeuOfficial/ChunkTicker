@@ -5,7 +5,6 @@ import org.bukkit.command.PluginCommand;
 import org.bukkit.plugin.java.JavaPlugin;
 
 public class ChunkTicker extends JavaPlugin {
-
     private static ChunkTicker instance;
     private ChunkManager chunkManager;
 

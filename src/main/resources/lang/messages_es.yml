@@ -40,4 +40,4 @@ status:
 radius:
   too-small: "El radio debe ser >= 0."
   too-large: "El radio no puede superar 20 (demasiados chunks a la vez)."
-  invalid: "Radio invalido: '{value}' — debe ser un numero."
+  invalid: "Radio invalido: '{value}' - debe ser un numero."

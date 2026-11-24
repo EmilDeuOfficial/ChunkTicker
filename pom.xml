@@ -6,16 +6,63 @@
 
     <groupId>de.emilo</groupId>
     <artifactId>ChunkTicker</artifactId>
-    <version>1.1</version>
+    <version>1.2</version>
     <packaging>jar</packaging>
 
     <name>ChunkTicker</name>
     <description>Keeps selected chunks permanently loaded and fully ticking</description>
 
     <properties>
-        <java.version>21</java.version>
+        <java.version>25</java.version>
+        <paper.version>26.1.2.build.74-stable</paper.version>
+        <nms.version>26.1.2</nms.version>
+        <plugin.api-version>26.1</plugin.api-version>
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
     </properties>
+
+    <profiles>
+        <profile>
+            <id>paper-26</id>
+            <activation>
+                <activeByDefault>true</activeByDefault>
+            </activation>
+            <repositories>
+                <repository>
+                    <id>minecraft-libraries</id>
+                    <url>https://libraries.minecraft.net/</url>
+                </repository>
+            </repositories>
+            <dependencies>
+                <dependency>
+                    <groupId>com.mojang</groupId>
+                    <artifactId>datafixerupper</artifactId>
+                    <version>9.0.19</version>
+                    <scope>provided</scope>
+                </dependency>
+                <dependency>
+                    <groupId>com.mojang</groupId>
+                    <artifactId>authlib</artifactId>
+                    <version>7.0.63</version>
+                    <scope>provided</scope>
+                </dependency>
+                <dependency>
+                    <groupId>com.mojang</groupId>
+                    <artifactId>logging</artifactId>
+                    <version>1.6.11</version>
+                    <scope>provided</scope>
+                </dependency>
+            </dependencies>
+        </profile>
+        <profile>
+            <id>paper-1.21</id>
+            <properties>
+                <java.version>21</java.version>
+                <paper.version>1.21.8-R0.1-SNAPSHOT</paper.version>
+                <nms.version>1.21.8</nms.version>
+                <plugin.api-version>1.21</plugin.api-version>
+            </properties>
+        </profile>
+    </profiles>
 
     <repositories>
         <repository>
@@ -25,36 +72,47 @@
     </repositories>
 
     <dependencies>
-        <!-- Paper API 1.21.8 -->
         <dependency>
             <groupId>io.papermc.paper</groupId>
             <artifactId>paper-api</artifactId>
-            <version>1.21.8-R0.1-SNAPSHOT</version>
+            <version>${paper.version}</version>
             <scope>provided</scope>
         </dependency>
-        <!-- Paper server JAR for NMS compile-time access.
-             Install once: mvn install:install-file -Dfile=server/paper-1.21.8.jar
-                 -DgroupId=io.papermc.paper -DartifactId=paper-server -Dversion=1.21.8 -Dpackaging=jar
-             NOT bundled in the plugin (scope=provided). -->
         <dependency>
             <groupId>io.papermc.paper</groupId>
             <artifactId>paper-server</artifactId>
-            <version>1.21.8</version>
+            <version>${nms.version}</version>
             <scope>provided</scope>
         </dependency>
     </dependencies>
 
     <build>
+        <defaultGoal>package</defaultGoal>
+        <resources>
+            <resource>
+                <directory>src/main/resources</directory>
+                <filtering>true</filtering>
+                <includes>
+                    <include>plugin.yml</include>
+                </includes>
+            </resource>
+            <resource>
+                <directory>src/main/resources</directory>
+                <filtering>false</filtering>
+                <excludes>
+                    <exclude>plugin.yml</exclude>
+                </excludes>
+            </resource>
+        </resources>
         <plugins>
             <plugin>
                 <groupId>org.apache.maven.plugins</groupId>
                 <artifactId>maven-compiler-plugin</artifactId>
-                <version>3.13.0</version>
+                <version>3.14.0</version>
                 <configuration>
                     <release>${java.version}</release>
                 </configuration>
             </plugin>
         </plugins>
-        <defaultGoal>package</defaultGoal>
     </build>
 </project>

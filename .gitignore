@@ -1,9 +1,13 @@
 target/
-versions/
 .claude/
 *.class
 server/
-context-engineering-intro/
-img/
+.venv/
+.git/
+.gitignore
 skills-lock.json
-.agents/
+.vscode/
+.gitattributes
+mailmap.txt
+versions/
+img/

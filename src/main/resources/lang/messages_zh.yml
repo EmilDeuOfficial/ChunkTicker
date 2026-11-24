@@ -40,4 +40,4 @@ status:
 radius:
   too-small: "半径必须 >= 0。"
   too-large: "半径最大为 20（一次性区块过多）。"
-  invalid: "无效的半径: '{value}' — 必须是数字。"
+  invalid: "无效的半径: '{value}' - 必须是数字。"

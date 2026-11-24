@@ -13,30 +13,10 @@ import java.util.List;
 import java.util.concurrent.ThreadLocalRandom;
 import java.util.logging.Level;
 
-/**
- * Spawns mobs in registered chunks without requiring nearby players.
- *
- * Tries NmsSpawner (real vanilla NaturalSpawner) first on each cycle.
- * Falls back to the Bukkit-based spawner permanently if NMS throws.
- *
- * Rate control (Bukkit fallback only — NMS uses Paper's own mob cap):
- *   1. Global hostile + passive cap across ALL registered chunks at once.
- *      Animals that wander between chunks still count — prevents overflow.
- *   2. Per-chunk secondary cap.
- *   3. Random spawn-chance per chunk per cycle (vanilla feel).
- *   4. Biome exclusions:
- *        MUSHROOM_FIELDS — no hostile mobs (vanilla)
- *        DEEP_DARK       — no mobs at all; Warden is summoned, not spawned
- *   5. Biome checked at the actual spawn Y-coordinate, not at Y=64, so
- *      Ancient Cities (Deep Dark, ~Y=-51) are correctly excluded even when
- *      the surface biome is something else.
- */
 public class MobSpawnTask extends BukkitRunnable {
-
     private final ChunkTicker plugin;
     private final ChunkManager manager;
 
-    /** Flipped to false permanently on first NMS failure. */
     private boolean nmsEnabled = true;
 
     private final double spawnChance;
@@ -55,10 +35,6 @@ public class MobSpawnTask extends BukkitRunnable {
         this.maxPassivePerChunk = plugin.getConfig().getInt   ("force-spawning.max-passive-per-chunk",  2);
     }
 
-    // -------------------------------------------------------
-    //  Main loop
-    // -------------------------------------------------------
-
     @Override
     public void run() {
         if (!manager.isGlobalEnabled()) return;
@@ -66,20 +42,9 @@ public class MobSpawnTask extends BukkitRunnable {
         List<ChunkManager.ChunkEntry> entries = new ArrayList<>(manager.getRegisteredChunks());
         if (entries.isEmpty()) return;
 
-        // Count ALL mobs across ALL registered chunks once per cycle.
-        // Animals wander between chunks, so a local-only count would
-        // trigger re-spawning every time a mob leaves its origin chunk.
-        int totalHostile = 0, totalPassive = 0;
-        for (ChunkManager.ChunkEntry entry : entries) {
-            World w = Bukkit.getWorld(entry.worldName());
-            if (w == null) continue;
-            for (Entity e : w.getChunkAt(entry.x(), entry.z()).getEntities()) {
-                if (isHostile(e))            totalHostile++;
-                else if (e instanceof Animals) totalPassive++;
-            }
-        }
+        int[] counts = countMobs(entries);
+        int totalHostile = counts[0], totalPassive = counts[1];
 
-        // --- NMS path: real vanilla spawner, no custom logic needed ---
         if (nmsEnabled) {
             boolean anyFailed = false;
             for (ChunkManager.ChunkEntry entry : entries) {
@@ -90,12 +55,17 @@ public class MobSpawnTask extends BukkitRunnable {
                     break;
                 }
             }
-            if (!anyFailed) return;
-            plugin.getLogger().warning("Switching to Bukkit fallback spawner permanently.");
-            nmsEnabled = false;
+            if (anyFailed) {
+                plugin.getLogger().warning("Switching to Bukkit fallback spawner permanently.");
+                nmsEnabled = false;
+            }
+            counts = countMobs(entries);
+            boolean vanillaSpawned = counts[0] + counts[1] > totalHostile + totalPassive;
+            if (!anyFailed && vanillaSpawned) return;
+            totalHostile = counts[0];
+            totalPassive = counts[1];
         }
 
-        // --- Bukkit fallback ---
         boolean hostileFull = totalHostile >= globalHostileCap;
         boolean passiveFull = totalPassive >= globalPassiveCap;
         if (hostileFull && passiveFull) return;
@@ -135,8 +105,6 @@ public class MobSpawnTask extends BukkitRunnable {
             else if (e instanceof Animals) chunkPassive++;
         }
 
-        // Hostile — biome is read at the ACTUAL spawn Y, not at Y=64.
-        // This correctly handles Deep Dark (Ancient City, ~Y=-51).
         if (!globalHostileFull && chunkHostile < maxHostilePerChunk) {
             Location loc = findHostileLocation(world, cx, cz, env);
             if (loc != null) {
@@ -151,7 +119,6 @@ public class MobSpawnTask extends BukkitRunnable {
             }
         }
 
-        // Passive (Overworld only)
         if (!globalPassiveFull && chunkPassive < maxPassivePerChunk
                 && env == World.Environment.NORMAL) {
             Location loc = findSurfaceLocation(world, cx, cz);
@@ -168,17 +135,22 @@ public class MobSpawnTask extends BukkitRunnable {
         return new int[]{hostileSpawned, passiveSpawned};
     }
 
-    // -------------------------------------------------------
-    //  Biome rules
-    // -------------------------------------------------------
+    private static int[] countMobs(List<ChunkManager.ChunkEntry> entries) {
+        int hostile = 0, passive = 0;
+        for (ChunkManager.ChunkEntry entry : entries) {
+            World w = Bukkit.getWorld(entry.worldName());
+            if (w == null) continue;
+            for (Entity e : w.getChunkAt(entry.x(), entry.z()).getEntities()) {
+                if (isHostile(e)) hostile++;
+                else if (e instanceof Animals) passive++;
+            }
+        }
+        return new int[]{hostile, passive};
+    }
 
     private static boolean allowsHostileMobs(Biome biome) {
         return biome != Biome.MUSHROOM_FIELDS && biome != Biome.DEEP_DARK;
     }
-
-    // -------------------------------------------------------
-    //  Mob selection
-    // -------------------------------------------------------
 
     private EntityType pickHostileMob(Biome biome, World.Environment env) {
         ThreadLocalRandom rand = ThreadLocalRandom.current();
@@ -221,10 +193,6 @@ public class MobSpawnTask extends BukkitRunnable {
             return pick(rand, EntityType.FROG, EntityType.CHICKEN, EntityType.PIG);
         return pick(rand, EntityType.SHEEP, EntityType.PIG, EntityType.COW, EntityType.CHICKEN, EntityType.RABBIT);
     }
-
-    // -------------------------------------------------------
-    //  Location finders
-    // -------------------------------------------------------
 
     private Location findHostileLocation(World world, int cx, int cz, World.Environment env) {
         ThreadLocalRandom rand = ThreadLocalRandom.current();
@@ -271,10 +239,6 @@ public class MobSpawnTask extends BukkitRunnable {
         }
         return null;
     }
-
-    // -------------------------------------------------------
-    //  Helpers
-    // -------------------------------------------------------
 
     private static boolean isHostile(Entity e) {
         return e instanceof Monster || e instanceof Hoglin || e instanceof Piglin;

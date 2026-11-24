@@ -6,25 +6,7 @@ import org.bukkit.configuration.file.FileConfiguration;
 
 import java.util.*;
 
-/**
- * Manages which chunks are kept loaded and entity-ticking.
- *
- * Ticket strategy (configurable via "ticket-mode" in config.yml):
- *
- *   plugin  – World.addPluginChunkTicket()  → TicketType.PLUGIN  at level 31
- *   forced  – World.setChunkForceLoaded()   → TicketType.FORCED  at level 31
- *   both    – both tickets applied (most aggressive, default)
- *
- * Level 31 = entity-ticking → all entities run, mobs spawn, Redstone ticks.
- * This covers iron-golem farms (villager AI runs), creeper/hoglin farms
- * (natural mob spawning eligible), and Redstone contraptions.
- *
- * Note: TicketType.UNKNOWN has timeout=1 tick and is intentionally NOT used
- * here because it requires constant re-application and is designed for
- * transient vanilla operations, not persistent plugin-managed loading.
- */
 public class ChunkManager {
-
     public enum TicketMode { PLUGIN, FORCED, BOTH }
 
     private final ChunkTicker plugin;
@@ -34,10 +16,6 @@ public class ChunkManager {
     public ChunkManager(ChunkTicker plugin) {
         this.plugin = plugin;
     }
-
-    // -------------------------------------------------------
-    //  Config I/O
-    // -------------------------------------------------------
 
     public void loadFromConfig() {
         FileConfiguration cfg = plugin.getConfig();
@@ -74,11 +52,6 @@ public class ChunkManager {
         plugin.saveConfig();
     }
 
-    // -------------------------------------------------------
-    //  Add / Remove
-    // -------------------------------------------------------
-
-    /** Returns true if the entry was new (not already registered). */
     public boolean addChunk(String worldName, int x, int z) {
         ChunkEntry entry = new ChunkEntry(worldName, x, z);
         boolean added = registeredChunks.add(entry);
@@ -88,7 +61,6 @@ public class ChunkManager {
         return added;
     }
 
-    /** Returns true if the entry existed and was removed. */
     public boolean removeChunk(String worldName, int x, int z) {
         ChunkEntry entry = new ChunkEntry(worldName, x, z);
         boolean removed = registeredChunks.remove(entry);
@@ -101,10 +73,6 @@ public class ChunkManager {
     public boolean isRegistered(String worldName, int x, int z) {
         return registeredChunks.contains(new ChunkEntry(worldName, x, z));
     }
-
-    // -------------------------------------------------------
-    //  Global toggle
-    // -------------------------------------------------------
 
     public void enableGlobal() {
         globalEnabled = true;
@@ -121,10 +89,6 @@ public class ChunkManager {
     public boolean isGlobalEnabled() {
         return globalEnabled;
     }
-
-    // -------------------------------------------------------
-    //  Ticket lifecycle
-    // -------------------------------------------------------
 
     public void applyAllTickets() {
         for (ChunkEntry e : registeredChunks) {
@@ -164,14 +128,9 @@ public class ChunkManager {
         World world = Bukkit.getWorld(e.worldName());
         if (world == null) return;
 
-        // Always remove both, regardless of current mode, to clean up any previously set tickets
         world.removePluginChunkTicket(e.x(), e.z(), plugin);
         world.setChunkForceLoaded(e.x(), e.z(), false);
     }
-
-    // -------------------------------------------------------
-    //  Accessors
-    // -------------------------------------------------------
 
     public int getRegisteredChunkCount() {
         return registeredChunks.size();
@@ -181,12 +140,7 @@ public class ChunkManager {
         return Collections.unmodifiableSet(registeredChunks);
     }
 
-    // -------------------------------------------------------
-    //  ChunkEntry
-    // -------------------------------------------------------
-
     public record ChunkEntry(String worldName, int x, int z) {
-
         @Override
         public boolean equals(Object o) {
             if (this == o) return true;

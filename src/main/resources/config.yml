@@ -1,34 +1,40 @@
-# ============================================================
-#  ChunkTicker – Konfiguration
-# ============================================================
+# ChunkTicker configuration
+# Apply changes without a restart with /ct reload.
 
+# Master switch. Also changed by /ct on and /ct off.
+# false = no tickets are set, the chunk list is kept.
 global-enabled: true
+
+# Ticket mode: plugin | forced | both (recommended)
+#   plugin  -> addPluginChunkTicket()  (TicketType.PLUGIN, Level 31)
+#   forced  -> setChunkForceLoaded()   (TicketType.FORCED, Level 31)
+#   both    -> both tickets applied, most reliable for mob farms
 ticket-mode: both
 
-# Language for plugin messages.
-# Available: en, de, ru, es, fr, ja, zh
+# Language of plugin messages: en, de, ru, es, fr, ja, zh
 language: en
 
+# Natural mob spawning in registered chunks while no player is nearby.
+# Each cycle runs the vanilla NaturalSpawner for every registered chunk.
+# If that fails or spawns nothing in a cycle, a Bukkit based spawner runs and uses the limits below.
 force-spawning:
   enabled: true
 
-  # How often a spawn attempt runs (in ticks). 400 = 20 seconds.
+  # How often a spawn attempt runs, in ticks. 400 = 20 seconds.
   interval-ticks: 400
 
-  # Probability (0.0–1.0) that any single chunk gets a spawn attempt
-  # each cycle. 0.3 = roughly 1 in 3 cycles per chunk, similar to
-  # how vanilla spreads spawns across a player's view distance.
+  # Probability from 0.0 to 1.0 that a chunk gets a spawn attempt in a cycle.
+  # 0.3 = roughly 1 in 3 cycles per chunk.
   spawn-chance: 0.3
 
-  # Hard cap on the TOTAL number of hostile / passive mobs across
-  # ALL registered chunks combined. Once reached, no more of that
-  # category are spawned until mobs die or leave the area.
+  # Cap on the total number of hostile and passive mobs across all registered
+  # chunks combined. Once reached, no more of that category spawn.
   global-hostile-cap: 15
   global-passive-cap: 12
 
-  # Per-chunk secondary cap. Spawn is skipped for a chunk that
-  # already has at least this many mobs of that category inside it.
+  # Per-chunk cap. A chunk with at least this many mobs of a category is skipped.
   max-hostile-per-chunk: 3
   max-passive-per-chunk: 2
 
+# Managed automatically, only edit while the server is stopped.
 chunks: []

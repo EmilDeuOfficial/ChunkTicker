@@ -9,7 +9,6 @@ import java.util.Map;
 import java.util.logging.Level;
 
 public final class Lang {
-
     private static final Map<String, String> MESSAGES = new HashMap<>();
 
     private Lang() {}
@@ -20,23 +19,19 @@ public final class Lang {
         String lang     = plugin.getConfig().getString("language", "en").toLowerCase();
         String resource = "lang/messages_" + lang + ".yml";
 
-        // If unknown language, fall back to English
         if (plugin.getResource(resource) == null) {
-            plugin.getLogger().warning("Language '" + lang + "' not found — falling back to 'en'.");
+            plugin.getLogger().warning("Language '" + lang + "' not found - falling back to 'en'.");
             lang     = "en";
             resource = "lang/messages_en.yml";
         }
 
-        // Extract to data folder so admins can customise it
         File file = new File(plugin.getDataFolder(), resource);
         if (!file.exists()) {
             plugin.saveResource(resource, false);
         }
 
-        // Load requested language
         YamlConfiguration config = loadYaml(plugin, file);
 
-        // English as fallback for any missing keys
         try (InputStream in = plugin.getResource("lang/messages_en.yml")) {
             if (in != null) {
                 YamlConfiguration defaults = new YamlConfiguration();
@@ -58,11 +53,6 @@ public final class Lang {
                 + " (" + MESSAGES.size() + " keys)");
     }
 
-    /**
-     * Returns the translated message for {@code key}.
-     * Replacements are applied as interleaved key-value pairs:
-     * {@code Lang.get("set.success", "added", "3", "skipped", "")}
-     */
     public static String get(String key, String... pairs) {
         String msg = MESSAGES.getOrDefault(key, "[" + key + "]");
         for (int i = 0; i + 1 < pairs.length; i += 2) {
@@ -70,8 +60,6 @@ public final class Lang {
         }
         return msg;
     }
-
-    // -------------------------------------------------------
 
     private static YamlConfiguration loadYaml(ChunkTicker plugin, File file) {
         YamlConfiguration config = new YamlConfiguration();

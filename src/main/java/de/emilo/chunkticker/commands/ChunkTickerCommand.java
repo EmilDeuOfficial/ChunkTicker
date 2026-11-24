@@ -20,7 +20,6 @@ import java.util.Set;
 import java.util.stream.Collectors;
 
 public class ChunkTickerCommand implements CommandExecutor, TabCompleter {
-
     private static final String PREFIX = "[ChunkTicker] ";
     private static final List<String> SUBCOMMANDS =
             Arrays.asList("set", "delete", "list", "reload", "on", "off", "status");
@@ -32,10 +31,6 @@ public class ChunkTickerCommand implements CommandExecutor, TabCompleter {
         this.plugin  = plugin;
         this.manager = plugin.getChunkManager();
     }
-
-    // -------------------------------------------------------
-    //  Execution
-    // -------------------------------------------------------
 
     @Override
     public boolean onCommand(CommandSender sender, Command command, String label, String[] args) {
@@ -56,10 +51,6 @@ public class ChunkTickerCommand implements CommandExecutor, TabCompleter {
         }
         return true;
     }
-
-    // -------------------------------------------------------
-    //  /ct set [radius]
-    // -------------------------------------------------------
 
     private void handleSet(CommandSender sender, String[] args) {
         if (!sender.hasPermission("chunksticker.set")) {
@@ -99,10 +90,6 @@ public class ChunkTickerCommand implements CommandExecutor, TabCompleter {
         }
     }
 
-    // -------------------------------------------------------
-    //  /ct delete [radius]
-    // -------------------------------------------------------
-
     private void handleDelete(CommandSender sender, String[] args) {
         if (!sender.hasPermission("chunksticker.delete")) {
             sendError(sender, Lang.get("no-permission"));
@@ -135,10 +122,6 @@ public class ChunkTickerCommand implements CommandExecutor, TabCompleter {
         }
     }
 
-    // -------------------------------------------------------
-    //  /ct list
-    // -------------------------------------------------------
-
     private void handleList(CommandSender sender) {
         if (!sender.hasPermission("chunksticker.list")) {
             sendError(sender, Lang.get("no-permission"));
@@ -167,10 +150,6 @@ public class ChunkTickerCommand implements CommandExecutor, TabCompleter {
         }
     }
 
-    // -------------------------------------------------------
-    //  /ct reload
-    // -------------------------------------------------------
-
     private void handleReload(CommandSender sender) {
         if (!sender.hasPermission("chunksticker.reload")) {
             sendError(sender, Lang.get("no-permission"));
@@ -183,10 +162,6 @@ public class ChunkTickerCommand implements CommandExecutor, TabCompleter {
         sendSuccess(sender, Lang.get("reload.success",
                 "count", String.valueOf(manager.getRegisteredChunkCount())));
     }
-
-    // -------------------------------------------------------
-    //  /ct on
-    // -------------------------------------------------------
 
     private void handleOn(CommandSender sender) {
         if (!sender.hasPermission("chunksticker.toggle")) {
@@ -202,10 +177,6 @@ public class ChunkTickerCommand implements CommandExecutor, TabCompleter {
                 "count", String.valueOf(manager.getRegisteredChunkCount())));
     }
 
-    // -------------------------------------------------------
-    //  /ct off
-    // -------------------------------------------------------
-
     private void handleOff(CommandSender sender) {
         if (!sender.hasPermission("chunksticker.toggle")) {
             sendError(sender, Lang.get("no-permission"));
@@ -218,10 +189,6 @@ public class ChunkTickerCommand implements CommandExecutor, TabCompleter {
         manager.disableGlobal();
         sendSuccess(sender, Lang.get("off.success"));
     }
-
-    // -------------------------------------------------------
-    //  /ct status
-    // -------------------------------------------------------
 
     private void handleStatus(CommandSender sender) {
         if (!sender.hasPermission("chunksticker.status")) {
@@ -250,10 +217,6 @@ public class ChunkTickerCommand implements CommandExecutor, TabCompleter {
                             .append(Component.text(n + " " + chunkSuffix).color(NamedTextColor.WHITE))));
         }
     }
-
-    // -------------------------------------------------------
-    //  Tab completion
-    // -------------------------------------------------------
 
     @Override
     public List<String> onTabComplete(CommandSender sender, Command command, String alias, String[] args) {
@@ -286,10 +249,6 @@ public class ChunkTickerCommand implements CommandExecutor, TabCompleter {
             default          -> false;
         };
     }
-
-    // -------------------------------------------------------
-    //  Helpers
-    // -------------------------------------------------------
 
     private int parseRadius(CommandSender sender, String[] args, int index) {
         if (args.length <= index) return 0;

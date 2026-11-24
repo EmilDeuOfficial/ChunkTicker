@@ -40,4 +40,4 @@ status:
 radius:
   too-small: "Radius must be >= 0."
   too-large: "Radius may be at most 20 (too many chunks at once)."
-  invalid: "Invalid radius: '{value}' — must be a number."
+  invalid: "Invalid radius: '{value}' - must be a number."

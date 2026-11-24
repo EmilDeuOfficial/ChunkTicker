@@ -1,48 +1,48 @@
 # ChunkTicker
 
-A lightweight Paper plugin that keeps selected chunks permanently loaded and fully ticking, so your farms keep running when nobody is online. Mobs spawn, Redstone fires, villagers work.
+Keeps selected chunks permanently loaded and fully ticking, so farms keep running when nobody is online. Mobs spawn, Redstone fires and villagers work.
+
+The plugin runs on its own and needs no other plugin. Mob spawning calls the vanilla `NaturalSpawner` through NMS and uses a Bukkit based spawner when that fails or spawns nothing.
 
 ## Features
 
-- Full entity ticking: mobs spawn, villager AI runs, Redstone executes, crops grow
-- Works with zero players online, so iron golem, creeper and hoglin farms run 24/7
+- Chunks are held at entity ticking level (Level 31): mob AI, villager AI, Redstone, crop growth and hoppers keep running
+- Works with zero players online, so iron golem, creeper and hoglin farms run around the clock
+- Natural mob spawning in registered chunks without a player nearby, using the vanilla `NaturalSpawner` for every spawn category except MISC
+- Bukkit fallback spawner with biome based mob lists, a global cap, a per-chunk cap and a spawn chance. It skips Mushroom Fields for hostile mobs and Deep Dark completely
 - Multi-world support for Overworld, Nether, End and custom worlds
-- Radius selection to register one chunk or a whole NxN area in a single command
+- Radius selection to register one chunk or a whole NxN area in a single command, up to radius 20
+- Three ticket modes: `plugin`, `forced` or `both`
 - Chunk list is stored in `config.yml` and survives restarts
-- Global toggle that pauses all tickets without clearing your list
+- Global toggle that removes all tickets without clearing the list
 - Per-subcommand permissions, compatible with LuckPerms
-
-## Requirements
-
-| | |
-|---|---|
-| Server | Paper 1.21 to 1.21.x (Purpur and Pufferfish also work) |
-| Java | 21+ |
-
-Spigot and Folia are not supported.
-
-## Installation
-
-1. Download the latest JAR from [Releases](../../releases)
-2. Drop it into your server's `plugins/` folder
-3. Restart the server
-4. Stand in a chunk you want loaded and run `/ct set`
+- Languages: en, de, ru, es, fr, ja, zh
 
 ## Configuration
 
 ```yaml
-# Whether ChunkTicker is globally active
 global-enabled: true
 
-# Ticket mode: plugin | forced | both (recommended)
-#   plugin  -> addPluginChunkTicket()  (TicketType.PLUGIN, Level 31)
-#   forced  -> setChunkForceLoaded()   (TicketType.FORCED, Level 31)
-#   both    -> both tickets applied, most reliable for mob farms
+# plugin | forced | both (recommended)
 ticket-mode: both
+
+# en, de, ru, es, fr, ja, zh
+language: en
+
+force-spawning:
+  enabled: true
+  interval-ticks: 400
+  spawn-chance: 0.3
+  global-hostile-cap: 15
+  global-passive-cap: 12
+  max-hostile-per-chunk: 3
+  max-passive-per-chunk: 2
 
 # Managed automatically, only edit while the server is stopped
 chunks: []
 ```
+
+The full file with comments is created in `plugins/ChunkTicker/` on the first start. Caps, spawn chance and per-chunk limits only apply to the Bukkit fallback spawner. Changes to the `force-spawning` section need a server restart, everything else is applied by `/ct reload`.
 
 ## Permissions
 
@@ -67,20 +67,58 @@ LuckPerms examples:
 
 | Command | Description |
 |---|---|
-| `/ct set [radius]` | Register the chunk you're standing in, plus radius |
-| `/ct delete [radius]` | Remove the chunk you're standing in, plus radius |
+| `/ct set [radius]` | Register the chunk you are standing in, plus the given radius |
+| `/ct delete [radius]` | Remove the chunk you are standing in, plus the given radius |
 | `/ct list` | List all registered chunks (world, X, Z) |
-| `/ct on` / `off` | Enable or disable ChunkTicker globally |
-| `/ct reload` | Reload config and re-apply all tickets |
-| `/ct status` | Show active state and chunk count per world |
+| `/ct on` | Enable ChunkTicker globally |
+| `/ct off` | Disable ChunkTicker globally, the chunk list is kept |
+| `/ct status` | Show state and registered chunk count per world |
+| `/ct reload` | Reload `config.yml` and the language file and re-apply all tickets |
 
 Alias: `/ct`, full command: `/chunksticker`
 
+## Requirements
+
+| | |
+|---|---|
+| Server | Paper 26.1 to 26.3 with `ChunkTicker_1.2_26.x.jar`, Paper 1.21 to 1.21.x with `ChunkTicker_1.2_1.21.x.jar` (Purpur and Pufferfish should work as Paper forks) |
+| Java | 25+ for Paper 26.x, 21+ for Paper 1.21.x |
+
+Spigot and Folia are not supported.
+
+## Installation
+
+1. Copy the JAR that matches your server into the `plugins/` folder: `ChunkTicker_1.2_26.x.jar` for Paper 26.x or `ChunkTicker_1.2_1.21.x.jar` for Paper 1.21.x.
+2. Start the server. `config.yml` and the language files are created in `plugins/ChunkTicker/`.
+3. Stand in a chunk you want loaded and run `/ct set`.
+
+## Building
+
+```
+mvn package
+```
+
+The JAR is written to `target/ChunkTicker-1.2.jar`. Maven needs a JDK 25 or newer. The default build targets Paper 26.x with Java 25. For Paper 1.21.x use the profile `paper-1.21`, which compiles against Paper 1.21.8 for Java 21 and sets `api-version: '1.21'`:
+
+```
+mvn package -Ppaper-1.21
+```
+
+The plugin uses NMS, so the matching `paper-server` JAR has to be in the local Maven repository. Install it once, for example for 1.21.8:
+
+```
+mvn install:install-file -Dfile=server/paper-1.21.8.jar -DgroupId=io.papermc.paper -DartifactId=paper-server -Dversion=1.21.8 -Dpackaging=jar
+```
+
+For 26.x the same command works with the patched server JAR that Paper creates in `versions/26.1.2/` after `java -Dpaperclip.patchonly=true -jar paper-26.1.2.jar`. The versions are set by the properties `paper.version` and `nms.version` in `pom.xml`.
+
 ## How it works
 
-Paper exposes two persistent chunk-ticket APIs at entity-ticking level (Level 31): `addPluginChunkTicket()` and `setChunkForceLoaded()`. With `ticket-mode: both`, ChunkTicker applies both to every registered chunk.
+Paper exposes two persistent chunk ticket APIs at entity ticking level (Level 31): `addPluginChunkTicket()` and `setChunkForceLoaded()`. With `ticket-mode: both`, ChunkTicker applies both to every registered chunk. Level 31 is the load level Minecraft uses for chunks inside a player's view distance, so entities tick, Redstone runs and villagers work as if a player were standing nearby.
 
-Level 31 is the same load level Minecraft uses for chunks inside a player's view distance. Entities tick, mobs spawn through the normal spawning cycle, and Redstone runs exactly as if a player were standing nearby.
+Loaded chunks alone do not spawn mobs without a player, because the vanilla spawn cycle starts from players. Every `interval-ticks` ChunkTicker calls `NaturalSpawner.spawnForChunk` through NMS for each registered chunk, with a spawn state built from the loaded entities. This is the real vanilla spawner, including biome spawn lists, light checks and structure rules such as the Ancient City.
+
+When the NMS call throws, the plugin logs a warning and switches to a Bukkit fallback spawner for the rest of the session. When the vanilla spawner runs without error but spawns nothing in a cycle, which Paper does with `per-player-mob-spawns: true` and no player nearby, the fallback runs for that cycle. It counts hostile and passive mobs across all registered chunks, rolls `spawn-chance` per chunk, and reads the biome at the real spawn height so that Ancient Cities below a different surface biome are still excluded.
 
 ## Source
 

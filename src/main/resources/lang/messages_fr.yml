@@ -40,4 +40,4 @@ status:
 radius:
   too-small: "Le rayon doit etre >= 0."
   too-large: "Le rayon ne peut pas depasser 20 (trop de chunks a la fois)."
-  invalid: "Rayon invalide : '{value}' — doit etre un nombre."
+  invalid: "Rayon invalide : '{value}' - doit etre un nombre."

@@ -1,10 +1,10 @@
 name: ChunkTicker
 version: '${project.version}'
 main: de.emilo.chunkticker.ChunkTicker
-api-version: '1.21'
+api-version: '${plugin.api-version}'
 description: Keeps selected chunks permanently loaded and fully ticking
-authors: [ emilo ]
-website: ''
+authors: [EmilDeuOfficial]
+website: https://github.com/EmilDeuOfficial/ChunkTicker
 
 commands:
   chunksticker:
